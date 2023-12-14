@@ -1,0 +1,80 @@
+name: Rust CI
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - main
+
+jobs:
+  format-check:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - name: cargo fmt
+        run: cargo +nightly fmt --check --all
+  doc:
+    name: doc
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: cargo doc
+        run: cargo doc
+  typos:
+    name: typos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: typos-action
+        uses: crate-ci/typos@master
+  clippy:
+    name: clippy
+    needs: format-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+      - uses: r7kamura/rust-problem-matchers@v1
+      - name: cargo clippy
+        run: cargo clippy --tests -- -D warnings
+  tests:
+    name: tests
+    needs: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-nextest
+      - uses: r7kamura/rust-problem-matchers@v1
+      - name: Run tests
+        run: cargo nextest run
+  coverage:
+    name: coverage
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo llvm-cov test --doctests --html
+      - run: cat "target/llvm-cov/html/index.html" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage
+          path: target/llvm-cov/html
