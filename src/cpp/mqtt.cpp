@@ -1,10 +1,6 @@
 #include "mqtt.h"
 #include "logs.h"
 
-using MqttBuilder = Aws::Iot::MqttClientConnectionConfigBuilder;
-using MqttConfig = Aws::Iot::MqttClientConnectionConfig;
-using MqttConnection = Aws::Crt::Mqtt::MqttConnection;
-
 extern "C" void on_completed(const void *, int, ReturnCode, bool);
 extern "C" void on_closed(const void *);
 extern "C" void on_interrupted(const void *, int);
