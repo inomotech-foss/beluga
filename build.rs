@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 fn main() {
+    let c_iot_root = PathBuf::from(std::env::var("DEP_AWS_C_IOT_ROOT").unwrap());
     let crt_root = PathBuf::from(std::env::var("DEP_AWS_CRT_CPP_ROOT").unwrap());
     let iot_device_sdk_root =
         PathBuf::from(std::env::var("DEP_AWS_IOT_DEVICE_SDK_CPP_V2_ROOT").unwrap());
@@ -16,6 +17,7 @@ fn main() {
         .flag_if_supported("-Wfloat-equal")
         .flag_if_supported("-Wno-attributes")
         .flag_if_supported("-pedantic")
+        .include(c_iot_root.join("include"))
         .include(crt_root.join("include"))
         .include(iot_device_sdk_root.join("include"))
         .include("src/cpp")
@@ -23,6 +25,7 @@ fn main() {
             "src/cpp/mqtt.cpp",
             "src/cpp/handle.cpp",
             "src/cpp/common.cpp",
+            "src/cpp/tunnel.cpp",
         ])
         .compile("aws-sdk-wrapper");
 }

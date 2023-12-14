@@ -2,7 +2,9 @@
 // it in the Rust code.
 extern crate aws_iot_device_sdk_sys;
 
-use std::ffi::{c_void, NulError};
+use std::ffi::{c_void, IntoStringError, NulError};
+use std::io::Error as IoError;
+use std::string::FromUtf8Error;
 use std::sync::OnceLock;
 
 pub use common::{AwsMqttConnectReturnCode, AwsMqttError, Qos};
@@ -15,6 +17,7 @@ use tokio::time::error::Elapsed;
 
 mod common;
 mod mqtt;
+pub mod tunnel;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -47,8 +50,16 @@ impl Drop for ApiHandle {
 pub enum Error {
     #[error(transparent)]
     StringConversion(#[from] NulError),
+    #[error(transparent)]
+    Utf8(#[from] FromUtf8Error),
+    #[error(transparent)]
+    RustString(#[from] IntoStringError),
     #[error("couldn't create a mqtt client")]
     MqttClientCreate,
+    #[error("couldn't create a tunnel client")]
+    TunnelClientCreate,
+    #[error("couldn't create a SSH tunnel")]
+    TunnelCreate,
     #[error("the mqtt client hasn't connected")]
     NotConnected,
     #[error("AwsMqttError::{0}")]
@@ -73,6 +84,12 @@ pub enum Error {
     Timeout(#[from] Elapsed),
     #[error("can't parse \"{0}\" to enum \"{1}\"")]
     UnrecognizedEnumValue(isize, &'static str),
+    #[error("message hasn't any payload")]
+    Payload,
+    #[error("miss service id for tunneling")]
+    ServiceId,
+    #[error(transparent)]
+    IoError(#[from] IoError),
 }
 
 impl From<AwsMqttError> for Error {

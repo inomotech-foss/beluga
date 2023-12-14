@@ -13,6 +13,10 @@ Buffer::Buffer(const ByteCursor &buff) : data(buff.ptr), len(buff.len)
 {
 }
 
+Buffer::Buffer() : data(nullptr), len(0)
+{
+}
+
 extern "C" bool is_buffer_empty(Buffer buffer);
 
 bool Buffer::is_empty() const

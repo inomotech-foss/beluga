@@ -116,6 +116,14 @@ impl From<Buffer> for Vec<u8> {
     }
 }
 
+impl TryFrom<Buffer> for String {
+    type Error = Error;
+
+    fn try_from(value: Buffer) -> Result<Self, Self::Error> {
+        String::from_utf8(value.into()).map_err(Error::Utf8)
+    }
+}
+
 enum_impl!(
     pub enum Qos {
         AtMostOnce = 0x0,

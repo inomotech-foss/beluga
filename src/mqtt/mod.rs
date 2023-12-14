@@ -2,6 +2,7 @@ use std::ffi::CString;
 use std::time::Duration;
 
 use client::ClientConfig;
+pub(crate) use client::InternalMqttClient;
 pub use client::{ClientStatus, MqttClient};
 pub use futures::{CreateMqttFuture, OperationResponseFuture, SubscribeMessageFuture};
 use itertools::Itertools;

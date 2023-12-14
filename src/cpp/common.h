@@ -17,6 +17,7 @@ extern "C"
 
         Buffer(const ByteBuf &buff);
         Buffer(const ByteCursor &buff);
+        Buffer();
 
         ByteBuf into() const;
         bool is_empty() const;

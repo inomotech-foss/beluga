@@ -66,13 +66,13 @@ pub(super) struct ClientConfig {
 }
 
 #[repr(C)]
-pub(super) struct InternalMqttClient {
+pub(crate) struct InternalMqttClient {
     connection: SharedPtr,
     interface: *const c_void,
 }
 
 #[derive(Debug)]
-pub(super) struct InternalMqttClientPointer {
+pub(crate) struct InternalMqttClientPointer {
     internal_client: *const InternalMqttClient,
 }
 
@@ -435,6 +435,10 @@ impl MqttClient {
         } else {
             Box::pin(future::ready(Ok(())))
         }
+    }
+
+    pub(crate) fn internal_client(&self) -> Arc<Mutex<InternalMqttClientPointer>> {
+        self.internal_client.clone()
     }
 
     fn is_connected(&self) -> bool {
