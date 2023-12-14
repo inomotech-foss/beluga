@@ -21,6 +21,7 @@ type Result<T> = std::result::Result<T, Error>;
 extern "C" {
     fn create_api_handle() -> *const c_void;
     fn drop_api_handle(handle: *const c_void);
+    fn init_logger();
 }
 
 struct ApiHandle(*const c_void);
@@ -31,7 +32,12 @@ static HANDLE: OnceLock<ApiHandle> = OnceLock::new();
 
 impl ApiHandle {
     fn handle() {
-        let _ = HANDLE.get_or_init(|| ApiHandle(unsafe { create_api_handle() }));
+        let _ = HANDLE.get_or_init(|| {
+            ApiHandle(unsafe {
+                init_logger();
+                create_api_handle()
+            })
+        });
     }
 }
 

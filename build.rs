@@ -23,6 +23,7 @@ fn main() {
             "src/cpp/mqtt.cpp",
             "src/cpp/handle.cpp",
             "src/cpp/common.cpp",
+            "src/cpp/logs.cpp",
         ])
         .compile("aws-sdk-wrapper");
 }
