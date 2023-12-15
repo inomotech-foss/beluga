@@ -136,7 +136,7 @@ impl Subscriber {
 /// internal client management and communication.
 pub struct MqttClient {
     internal_client: Arc<Mutex<InternalMqttClientPointer>>,
-    _interface: Arc<Mutex<Interface>>,
+    _interface: Arc<Interface>,
     status: Arc<FairMutex<ClientStatus>>,
     publish_notifiers: Arc<FairMutex<HashMap<u16, oneshot::Sender<i32>>>>,
     subscribers: Arc<SegQueue<Subscriber>>,
@@ -170,7 +170,7 @@ impl MqttClient {
 
         let (client_tx, client_rx) = oneshot::channel::<ClientStatus>();
 
-        let interface = Arc::new(const_mutex(Interface {
+        let interface = Arc::new(Interface {
             completed: Box::new(create_completed_callback(
                 status.clone(),
                 Arc::new(const_fair_mutex(client_tx.into())),
@@ -182,13 +182,13 @@ impl MqttClient {
             sub_ack: Box::new(create_sub_ack_callback()),
             publish: Box::new(create_notify_callback(publish_notifiers.clone())),
             unsubscribe: Box::new(create_notify_callback(unsubscribe_notifiers.clone())),
-        }));
+        });
 
         let internal_client = Arc::new(const_mutex(InternalMqttClientPointer {
             internal_client: unsafe {
                 internal_mqtt_client(
                     client_config,
-                    (&(*interface.lock()) as *const Interface).cast(),
+                    (interface.as_ref() as *const Interface).cast(),
                 )
             },
         }));
