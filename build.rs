@@ -1,9 +1,6 @@
-use std::path::PathBuf;
-
 fn main() {
-    let crt_root = PathBuf::from(std::env::var("DEP_AWS_CRT_CPP_ROOT").unwrap());
-    let iot_device_sdk_root =
-        PathBuf::from(std::env::var("DEP_AWS_IOT_DEVICE_SDK_CPP_V2_ROOT").unwrap());
+    let root_paths = aws_c_builder::get_dependency_root_paths(&["AWS_IOT_DEVICE_SDK_CPP_V2"]);
+    let dependency_includes = root_paths.into_iter().map(|path| format!("{path}/include"));
 
     println!("cargo:rerun-if-changed=src/cpp");
     cc::Build::new()
@@ -16,8 +13,7 @@ fn main() {
         .flag_if_supported("-Wfloat-equal")
         .flag_if_supported("-Wno-attributes")
         .flag_if_supported("-pedantic")
-        .include(crt_root.join("include"))
-        .include(iot_device_sdk_root.join("include"))
+        .includes(dependency_includes)
         .include("src/cpp")
         .files([
             "src/cpp/mqtt.cpp",

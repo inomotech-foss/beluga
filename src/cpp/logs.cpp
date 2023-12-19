@@ -1,71 +1,61 @@
 #include <aws/common/logging.h>
 #include "logs.h"
 
-extern "C" void rust_info(const char *const file, const char *const name, const int line, const char *const msg);
-extern "C" void rust_error(const char *const file, const char *const name, const int line, const char *const msg);
-extern "C" void rust_debug(const char *const file, const char *const name, const int line, const char *const msg);
-extern "C" void rust_warn(const char *const file, const char *const name, const int line, const char *const msg);
-extern "C" void rust_trace(const char *const file, const char *const name, const int line, const char *const msg);
+extern "C" void rust_log(aws_log_level level, aws_log_subject_t subject, aws_string *message);
 
 void info(const char *const msg, const char *file, const char *name, const int line)
 {
-    rust_info(file, name, line, msg);
+    rust_log(AWS_LL_INFO, 0, msg);
 }
 
 void error(const char *const msg, const char *file, const char *name, const int line)
 {
-    rust_error(file, name, line, msg);
+    rust_log(AWS_LL_ERROR, 0, msg);
 }
 
 void debug(const char *const msg, const char *file, const char *name, const int line)
 {
-    rust_debug(file, name, line, msg);
+    rust_log(AWS_LL_DEBUG, 0, msg);
 }
 
 void warn(const char *const msg, const char *file, const char *name, const int line)
 {
-    rust_warn(file, name, line, msg);
+    rust_log(AWS_LL_WARN, 0, msg);
 }
 
 void trace(const char *const msg, const char *file, const char *name, const int line)
 {
-    rust_trace(file, name, line, msg);
+    rust_log(AWS_LL_TRACE, 0, msg);
 }
 
-int log_function(aws_logger *, aws_log_level level, aws_log_subject_t, const char *format, ...)
+int log_function(aws_logger *logger, aws_log_level level, aws_log_subject_t subject, const char *format, ...)
 {
-    std::va_list args;
+    va_list args;
     va_start(args, format);
-    std::va_list args_cp;
-    va_copy(args_cp, args);
-    auto size = static_cast<size_t>(1 + std::vsnprintf(nullptr, 0, format, args));
-    auto buff = std::make_unique<char[]>(size);
-    va_end(args);
-    std::vsnprintf(buff.get(), size, format, args_cp);
-    va_end(args_cp);
 
-    switch (level)
-    {
-    case AWS_LOG_LEVEL_NONE:
-    case AWS_LOG_LEVEL_TRACE:
-        rust_trace("", "", 0, buff.get());
-        break;
-    case AWS_LOG_LEVEL_DEBUG:
-        rust_debug("", "", 0, buff.get());
-        break;
-    case AWS_LOG_LEVEL_WARN:
-        rust_warn("", "", 0, buff.get());
-        break;
-    case AWS_LOG_LEVEL_FATAL:
-    case AWS_LOG_LEVEL_ERROR:
-        rust_error("", "", 0, buff.get());
-        break;
-    case AWS_LOG_LEVEL_INFO:
-        rust_info("", "", 0, buff.get());
-        break;
-    default:
-        return AWS_OP_ERR;
+    va_list tmp_args;
+    va_copy(tmp_args, args);
+    auto total_length = vsnprintf(nullptr, 0, format, tmp_args) + 1;
+    va_end(tmp_args);
+
+    struct aws_string *raw_string = aws_mem_calloc(logger->allocator, 1, sizeof(struct aws_string) + total_length);
+    if (raw_string == NULL) {
+        // TODO
     }
+
+    int written_count = vsnprintf(
+        raw_string->bytes,
+        total_length,
+        format,
+        args);
+    if (written_count < 0) {
+        // TODO
+    }
+
+    va_end(args);
+
+    rust_log(level, subject, raw_string);
+    aws_string_destroy(raw_string);
 
     return AWS_OP_SUCCESS;
 }
