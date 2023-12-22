@@ -3,14 +3,12 @@ use std::time::Duration;
 
 use client::ClientConfig;
 pub use client::{ClientStatus, MqttClient};
-pub use futures::{CreateMqttFuture, OperationResponseFuture, SubscribeMessageFuture};
 use itertools::Itertools;
 
 use crate::{Error, Qos, Result};
 
 mod callbacks;
 mod client;
-mod futures;
 
 /// The struct represents a message in a MQTT broker
 #[derive(Debug, Clone)]

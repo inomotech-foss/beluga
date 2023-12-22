@@ -6,10 +6,7 @@ use std::ffi::{c_void, NulError};
 use std::sync::OnceLock;
 
 pub use common::{AwsMqttConnectReturnCode, AwsMqttError, Qos};
-pub use mqtt::{
-    ClientStatus, Config, ConfigBuilder, CreateMqttFuture, Message, MqttClient,
-    OperationResponseFuture, SubscribeMessageFuture,
-};
+pub use mqtt::{ClientStatus, Config, ConfigBuilder, Message, MqttClient};
 use thiserror::Error;
 use tokio::time::error::Elapsed;
 
