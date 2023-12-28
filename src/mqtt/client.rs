@@ -4,6 +4,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crossbeam::queue::SegQueue;
+use crossbeam::utils::Backoff;
 use itertools::Itertools;
 use parking_lot::{const_fair_mutex, const_mutex, FairMutex, Mutex};
 use smallvec::SmallVec;
@@ -146,6 +147,17 @@ impl Drop for MqttClient {
             // let's first try to disconnect the client with 150 milliseconds timeout
             let mut guard = self.internal_client.lock();
             disconnect(guard.internal_client);
+
+            // Waits for the client to reach the closed state before returning.
+            // Uses an exponential backoff strategy to avoid busy
+            // looping.
+            // Need to wait till connection will be closed, otherwise will be undefined
+            // behavior.
+            let backoff = Backoff::new();
+            while !matches!(ClientStatus::Closed, self.status.lock()) {
+                backoff.snooze();
+            }
+
             // drop the client itself
             drop_client(guard.internal_client);
             guard.internal_client = std::ptr::null();
