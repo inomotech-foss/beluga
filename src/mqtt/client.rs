@@ -1,16 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void, CString, NulError};
-use std::future;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use ::futures::future::BoxFuture;
 use crossbeam::queue::SegQueue;
 use itertools::Itertools;
 use parking_lot::{const_fair_mutex, const_mutex, FairMutex, Mutex};
 use smallvec::SmallVec;
 use strum::{AsRefStr, Display, EnumString};
 use tokio::sync::*;
+use tracing::error;
 
 use super::callbacks::{
     create_closed_callback, create_completed_callback, create_interrupted_callback,
@@ -19,10 +18,7 @@ use super::callbacks::{
 };
 use super::Message;
 use crate::common::{Buffer, SharedPtr};
-use crate::{
-    ApiHandle, AwsMqttError, Config, CreateMqttFuture, Error, OperationResponseFuture, Qos, Result,
-    SubscribeMessageFuture,
-};
+use crate::{ApiHandle, AwsMqttError, Config, Error, Qos, Result};
 
 extern "C" {
     fn internal_mqtt_client(
@@ -158,7 +154,7 @@ impl Drop for MqttClient {
 }
 
 impl MqttClient {
-    pub fn create(config: Config) -> BoxFuture<'static, Result<Arc<MqttClient>>> {
+    pub async fn create(config: Config) -> Result<Arc<MqttClient>> {
         ApiHandle::handle();
 
         let client_config = ClientConfig::from(&config);
@@ -194,21 +190,30 @@ impl MqttClient {
         }));
 
         if internal_client.lock().is_null() {
-            return Box::pin(future::ready(Err(Error::MqttClientCreate)));
+            return Err(Error::MqttClientCreate);
         }
 
-        Box::pin(CreateMqttFuture::new(
-            MqttClient {
-                _interface: interface,
-                internal_client,
-                status,
-                publish_notifiers,
-                subscribers,
-                subscription,
-                unsubscribe_notifiers,
-            },
-            client_rx,
-        ))
+        let client = Arc::new(MqttClient {
+            _interface: interface,
+            internal_client,
+            status,
+            publish_notifiers,
+            subscribers,
+            subscription,
+            unsubscribe_notifiers,
+        });
+
+        match client_rx.await {
+            Ok(ClientStatus::Connected) => Ok(client),
+            Ok(status) => {
+                error!(?status, "couldn't create the mqtt client");
+                Err(Error::MqttClientCreate)
+            }
+            Err(err) => {
+                error!(error = %err, "couldn't create the mqtt client");
+                Err(Error::MqttClientCreate)
+            }
+        }
     }
 
     /// Publishes a message to a specified topic with the given
@@ -238,19 +243,13 @@ impl MqttClient {
     /// # Returns:
     ///
     /// Result indicating whether the operation was successful or not.
-    pub fn publish(
-        &self,
-        topic: &str,
-        qos: Qos,
-        retain: bool,
-        data: &[u8],
-    ) -> BoxFuture<'static, Result<()>> {
+    pub async fn publish(&self, topic: &str, qos: Qos, retain: bool, data: &[u8]) -> Result<()> {
         if !self.is_connected() {
-            return Box::pin(future::ready(Err(Error::NotConnected)));
+            return Err(Error::NotConnected);
         }
 
         let Ok(c_topic) = CString::new(topic) else {
-            return Box::pin(future::ready(Err(Error::InvalidTopic(topic.to_owned()))));
+            return Err(Error::InvalidTopic(topic.to_owned()));
         };
 
         let packet_id = {
@@ -267,13 +266,19 @@ impl MqttClient {
         };
 
         if packet_id == 0 {
-            return Box::pin(future::ready(Err(AwsMqttError::ProtocolError.into())));
+            return Err(AwsMqttError::ProtocolError.into());
         }
 
         let (publish_tx, publish_rx) = oneshot::channel::<i32>();
         self.publish_notifiers.lock().insert(packet_id, publish_tx);
 
-        Box::pin(OperationResponseFuture::new(publish_rx))
+        match publish_rx.await {
+            Ok(0) => Ok(()),
+            Ok(error_code) => Err(AwsMqttError::try_from(error_code)
+                .map(Error::from)
+                .unwrap_or(Error::AwsUnknownMqttError(error_code))),
+            Err(_) => Err(Error::AwsReceiveResponse),
+        }
     }
 
     /// Subscribes to a topic with a specified quality of service [`Qos`] and an
@@ -294,35 +299,40 @@ impl MqttClient {
     /// # Returns:
     ///
     /// returns the [`Message`].
-    pub fn subscribe(&self, topic: &str, qos: Qos) -> BoxFuture<Result<Message>> {
+    pub async fn subscribe(&self, topic: &str, qos: Qos) -> Result<Message> {
         if !self.is_connected() {
-            return Box::pin(future::ready(Err(Error::NotConnected)));
+            return Err(Error::NotConnected);
         }
 
         let Ok(c_topic) = CString::new(topic) else {
-            return Box::pin(future::ready(Err(Error::InvalidTopic(topic.to_owned()))));
+            return Err(Error::InvalidTopic(topic.to_owned()));
         };
 
-        let mut subscription = self.subscription.lock();
+        {
+            let mut subscription = self.subscription.lock();
 
-        if !subscription.contains(topic) {
-            let packet_id = {
-                let guard = self.internal_client.lock();
-                unsafe { subscribe(guard.internal_client, c_topic.as_ptr(), qos) }
-            };
+            if !subscription.contains(topic) {
+                let packet_id = {
+                    let guard = self.internal_client.lock();
+                    unsafe { subscribe(guard.internal_client, c_topic.as_ptr(), qos) }
+                };
 
-            if packet_id == 0 {
-                return Box::pin(future::ready(Err(AwsMqttError::ProtocolError.into())));
+                if packet_id == 0 {
+                    return Err(AwsMqttError::ProtocolError.into());
+                }
+
+                subscription.insert(topic.to_owned());
             }
-
-            subscription.insert(topic.to_owned());
         }
 
         let (subscribe_tx, subscribe_rx) = oneshot::channel::<Message>();
         self.subscribers
             .push(Subscriber::new(&[topic], subscribe_tx));
 
-        Box::pin(SubscribeMessageFuture::new(subscribe_rx))
+        match subscribe_rx.await {
+            Ok(msg) => Ok(msg),
+            Err(_) => Err(Error::AwsReceiveMessage),
+        }
     }
 
     /// Subscribes to multiple topics with a specified quality of service and an
@@ -344,60 +354,63 @@ impl MqttClient {
     /// # Returns:
     ///
     /// returns the [`Message`].
-    pub fn subscribe_multiple(&self, topics: &[&str], qos: Qos) -> BoxFuture<Result<Message>> {
+    pub async fn subscribe_multiple(&self, topics: &[&str], qos: Qos) -> Result<Message> {
         if !self.is_connected() {
-            return Box::pin(future::ready(Err(Error::NotConnected)));
+            return Err(Error::NotConnected);
         }
 
-        let mut subscription = self.subscription.lock();
+        {
+            let mut subscription = self.subscription.lock();
 
-        let topics_diff = topics
-            .iter()
-            .map(ToString::to_string)
-            .collect::<HashSet<_>>()
-            .difference(&subscription)
-            .map(ToOwned::to_owned)
-            .collect_vec();
-
-        if !topics_diff.is_empty() {
-            let Ok::<Vec<CString>, NulError>(c_str_topics) = topics_diff
+            let topics_diff = topics
                 .iter()
-                .map(|topic| CString::new(topic.as_str()))
-                .try_collect()
-            else {
-                return Box::pin(future::ready(Err(Error::InvalidTopic(
-                    topics.iter().join(","),
-                ))));
-            };
-
-            let mut topics_ptr = c_str_topics
-                .iter()
-                .map(|topic| topic.as_c_str().as_ptr())
+                .map(ToString::to_string)
+                .collect::<HashSet<_>>()
+                .difference(&subscription)
+                .map(ToOwned::to_owned)
                 .collect_vec();
 
-            let packet_id = {
-                let guard = self.internal_client.lock();
-                unsafe {
-                    subscribe_multiple(
-                        guard.internal_client,
-                        topics_ptr.as_mut_ptr(),
-                        topics.len(),
-                        qos,
-                    )
+            if !topics_diff.is_empty() {
+                let Ok::<Vec<CString>, NulError>(c_str_topics) = topics_diff
+                    .iter()
+                    .map(|topic| CString::new(topic.as_str()))
+                    .try_collect()
+                else {
+                    return Err(Error::InvalidTopic(topics.iter().join(",")));
+                };
+
+                let mut topics_ptr = c_str_topics
+                    .iter()
+                    .map(|topic| topic.as_c_str().as_ptr())
+                    .collect_vec();
+
+                let packet_id = {
+                    let guard = self.internal_client.lock();
+                    unsafe {
+                        subscribe_multiple(
+                            guard.internal_client,
+                            topics_ptr.as_mut_ptr(),
+                            topics.len(),
+                            qos,
+                        )
+                    }
+                };
+
+                if packet_id == 0 {
+                    return Err(AwsMqttError::ProtocolError.into());
                 }
-            };
 
-            if packet_id == 0 {
-                return Box::pin(future::ready(Err(AwsMqttError::ProtocolError.into())));
+                subscription.extend(topics_diff);
             }
-
-            subscription.extend(topics_diff);
         }
 
         let (subscribe_tx, subscribe_rx) = oneshot::channel::<Message>();
         self.subscribers.push(Subscriber::new(topics, subscribe_tx));
 
-        Box::pin(SubscribeMessageFuture::new(subscribe_rx))
+        match subscribe_rx.await {
+            Ok(msg) => Ok(msg),
+            Err(_) => Err(Error::AwsReceiveMessage),
+        }
     }
 
     /// Unsubscribes from a specified topic.
@@ -407,13 +420,13 @@ impl MqttClient {
     /// - `topic`: The `topic` parameter is a string that represents the topic
     ///   from which the client
     /// wants to unsubscribe.
-    pub fn unsubscribe(&self, topic: &str) -> BoxFuture<Result<()>> {
+    pub async fn unsubscribe(&self, topic: &str) -> Result<()> {
         if !self.is_connected() {
-            return Box::pin(future::ready(Err(Error::NotConnected)));
+            return Err(Error::NotConnected);
         }
 
         let Ok(c_topic) = CString::new(topic) else {
-            return Box::pin(future::ready(Err(Error::InvalidTopic(topic.to_owned()))));
+            return Err(Error::InvalidTopic(topic.to_owned()));
         };
 
         if self.subscription.lock().remove(topic) {
@@ -423,7 +436,7 @@ impl MqttClient {
             };
 
             if packet_id == 0 {
-                return Box::pin(future::ready(Err(AwsMqttError::ProtocolError.into())));
+                return Err(AwsMqttError::ProtocolError.into());
             }
 
             let (unsubscribe_tx, unsubscribe_rx) = oneshot::channel::<i32>();
@@ -431,9 +444,15 @@ impl MqttClient {
                 .lock()
                 .insert(packet_id, unsubscribe_tx);
 
-            Box::pin(OperationResponseFuture::new(unsubscribe_rx))
+            match unsubscribe_rx.await {
+                Ok(0) => Ok(()),
+                Ok(error_code) => Err(AwsMqttError::try_from(error_code)
+                    .map(Error::from)
+                    .unwrap_or(Error::AwsUnknownMqttError(error_code))),
+                Err(_) => Err(Error::AwsReceiveResponse),
+            }
         } else {
-            Box::pin(future::ready(Ok(())))
+            Ok(())
         }
     }
 

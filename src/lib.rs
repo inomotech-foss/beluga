@@ -1,15 +1,12 @@
 // required to make sure cargo will link the library even though we aren't using
 // it in the Rust code.
-extern crate aws_iot_device_sdk_sys;
+extern crate aws_iot_device_sdk_cpp_sys;
 
 use std::ffi::{c_void, NulError};
 use std::sync::OnceLock;
 
 pub use common::{AwsMqttConnectReturnCode, AwsMqttError, Qos};
-pub use mqtt::{
-    ClientStatus, Config, ConfigBuilder, CreateMqttFuture, Message, MqttClient,
-    OperationResponseFuture, SubscribeMessageFuture,
-};
+pub use mqtt::{ClientStatus, Config, ConfigBuilder, Message, MqttClient};
 use thiserror::Error;
 use tokio::time::error::Elapsed;
 

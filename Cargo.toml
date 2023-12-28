@@ -17,8 +17,8 @@ providing a convenient and idiomatic Rust interface for developers working with 
 """
 
 [dependencies]
-aws-crt-cpp-sys = { git = "https://github.com/inomotech-foss/aws-iot-device-sdk-rust.git" }
-aws-iot-device-sdk-sys = { git = "https://github.com/inomotech-foss/aws-iot-device-sdk-rust.git" }
+aws-c-common-sys = { git = "https://github.com/inomotech-foss/aws-iot-device-sdk-rust.git" }
+aws-iot-device-sdk-cpp-sys = { git = "https://github.com/inomotech-foss/aws-iot-device-sdk-rust.git" }
 crossbeam = "0.8"
 futures = "0.3"
 itertools = "0.12"
@@ -35,4 +35,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
 
 [build-dependencies]
+aws-c-builder = { git = "https://github.com/inomotech-foss/aws-iot-device-sdk-rust.git" }
 cc = { version = "1", features = ["parallel"] }
