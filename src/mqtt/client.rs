@@ -154,7 +154,7 @@ impl Drop for MqttClient {
             // Need to wait till connection will be closed, otherwise will be undefined
             // behavior.
             let backoff = Backoff::new();
-            while !matches!(ClientStatus::Closed, self.status.lock()) {
+            while !matches!(*self.status.lock(), ClientStatus::Closed) {
                 backoff.snooze();
             }
 
