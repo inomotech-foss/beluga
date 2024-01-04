@@ -6,9 +6,9 @@ use std::os::raw::c_void;
 use std::sync::Arc;
 
 use crossbeam::queue::SegQueue;
+use log::{as_debug, as_display, debug, error};
 use parking_lot::FairMutex;
 use tokio::sync::oneshot::Sender;
-use tracing::{debug, error};
 
 use super::client::Subscriber;
 use super::{ClientStatus, Message};
@@ -27,7 +27,7 @@ fn call(interface: *const c_void, functor: impl FnOnce(&Interface) + std::panic:
     });
 
     if let Err(err) = res {
-        error!(?err, "call to interface panicked");
+        error!(error = as_debug!(err); "call to interface panicked");
     }
 }
 
@@ -115,9 +115,9 @@ pub(super) fn create_completed_callback(
 ) -> impl Fn(i32, AwsMqttConnectReturnCode, bool) {
     move |error_code, return_code, session_present| {
         if let Ok(error) = AwsMqttError::try_from(error_code) {
-            debug!(%error, %return_code, %session_present, "on completed triggered");
+            debug!(return_code = as_display!(return_code), session_present = session_present, error = as_display!(error); "on completed triggered");
         } else {
-            debug!(%error_code, %return_code, %session_present, "on completed triggered");
+            debug!(return_code = as_display!(return_code), session_present = session_present; "on completed triggered");
         }
 
         if error_code != 0 && !matches!(return_code, AwsMqttConnectReturnCode::Accepted) {
@@ -144,9 +144,9 @@ pub(super) fn create_closed_callback(status: Arc<FairMutex<ClientStatus>>) -> im
 pub(super) fn create_interrupted_callback(status: Arc<FairMutex<ClientStatus>>) -> impl Fn(i32) {
     move |error_code| {
         if let Ok(error) = AwsMqttError::try_from(error_code) {
-            debug!(%error, "on interrupted triggered");
+            debug!(error = as_display!(error); "on interrupted triggered");
         } else {
-            debug!(%error_code, "on interrupted triggered");
+            debug!(error_code = as_display!(error_code); "on interrupted triggered");
         }
         *status.lock() = ClientStatus::Interrupted;
     }
@@ -156,7 +156,7 @@ pub(super) fn create_resumed_callback(
     status: Arc<FairMutex<ClientStatus>>,
 ) -> impl Fn(AwsMqttConnectReturnCode, bool) {
     move |return_code, session_present| {
-        debug!(%return_code, %session_present, "on resumed triggered");
+        debug!(return_code = as_display!(return_code), session_present = session_present; "on resumed triggered");
         if let AwsMqttConnectReturnCode::Accepted = return_code {
             *status.lock() = ClientStatus::Connected;
         }

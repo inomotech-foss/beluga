@@ -6,11 +6,11 @@ use std::sync::Arc;
 use crossbeam::queue::SegQueue;
 use crossbeam::utils::Backoff;
 use itertools::Itertools;
+use log::{as_debug, as_error, error};
 use parking_lot::{const_fair_mutex, const_mutex, FairMutex, Mutex};
 use smallvec::SmallVec;
 use strum::{AsRefStr, Display, EnumString};
 use tokio::sync::*;
-use tracing::error;
 
 use super::callbacks::{
     create_closed_callback, create_completed_callback, create_interrupted_callback,
@@ -154,7 +154,7 @@ impl Drop for MqttClient {
             // Need to wait till connection will be closed, otherwise will be undefined
             // behavior.
             let backoff = Backoff::new();
-            while !matches!(ClientStatus::Closed, self.status.lock()) {
+            while !matches!(*self.status.lock(), ClientStatus::Closed) {
                 backoff.snooze();
             }
 
@@ -218,11 +218,11 @@ impl MqttClient {
         match client_rx.await {
             Ok(ClientStatus::Connected) => Ok(client),
             Ok(status) => {
-                error!(?status, "couldn't create the mqtt client");
+                error!(status = as_debug!(status); "couldn't create the mqtt client");
                 Err(Error::MqttClientCreate)
             }
             Err(err) => {
-                error!(error = %err, "couldn't create the mqtt client");
+                error!(error = as_error!(err); "couldn't create the mqtt client");
                 Err(Error::MqttClientCreate)
             }
         }
