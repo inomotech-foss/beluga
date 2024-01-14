@@ -1,0 +1,15 @@
+(?i)aws_aes.*
+(?i)aws_cal.*
+(?i)aws_ecc.*
+(?i)aws_hash.*
+(?i)aws_hmac.*
+(?i)aws_md5.*
+(?i)aws_rsa.*
+(?i)aws_sha1.*
+(?i)aws_sha256.*
+(?i)aws_symmetric.*
+AWS_C_CAL_PACKAGE_ID
+aws_set_md5_new_fn
+aws_set_sha1_new_fn
+aws_set_sha256_hmac_new_fn
+aws_set_sha256_new_fn

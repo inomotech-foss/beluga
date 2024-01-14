@@ -1,0 +1,26 @@
+[package]
+name = "aws-c-common-sys"
+version = "0.1.0+v0.9.12"
+links = "aws-c-common"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[package.metadata.aws-c-builder]
+enable = true
+
+[features]
+enable-tracing = ["dep:ittapi-sys"]
+
+[dependencies]
+ittapi-sys = { workspace = true, optional = true }
+libc.workspace = true
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+core-foundation-sys.workspace = true
+
+[build-dependencies]
+aws-c-builder.workspace = true

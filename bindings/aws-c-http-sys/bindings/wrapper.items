@@ -1,0 +1,6 @@
+(?i)aws_crt_statistics_http.*
+(?i)aws_http.*
+(?i)aws_websocket.*
+AWS_C_HTTP_PACKAGE_ID
+aws_crt_http_statistics_category
+proxy_env_var_settings

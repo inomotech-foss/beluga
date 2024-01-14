@@ -1,0 +1,4 @@
+(?i)aws_iotdevice.*
+(?i)aws_secure_tunnel.*
+AWS_C_IOTDEVICE_PACKAGE_ID
+defender_custom_metric_type

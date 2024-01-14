@@ -1,0 +1,3 @@
+(?i)aws_s3.*
+AWS_C_S3_PACKAGE_ID
+aws_credentials_properties_s3express

@@ -1,0 +1,3 @@
+(?i)aws_mqtt.*
+AWS_C_MQTT_PACKAGE_ID
+on_connection_closed_data

@@ -1,0 +1,10 @@
+(?i)aws_endpoints.*
+(?i)aws_partitions.*
+(?i)aws_profile.*
+(?i)aws_resource_name.*
+(?i)aws_sdkutils.*
+aws_byte_buf_append_resource_name
+AWS_C_SDKUTILS_PACKAGE_ID
+aws_get_config_file_path
+aws_get_credentials_file_path
+aws_get_profile_name

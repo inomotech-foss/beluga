@@ -1,0 +1,7 @@
+(?i)aws_.*
+# blocked because they contains va_list
+block:aws_format_standard_log_line
+block:aws_log_formatter_format_fn
+opaque:aws_hash_table
+opaque:aws_thread_once
+opaque:aws_log_formatter_vtable

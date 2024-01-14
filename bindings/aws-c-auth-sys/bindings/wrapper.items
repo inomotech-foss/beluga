@@ -1,0 +1,8 @@
+(?i)aws_auth.*
+(?i)aws_cognito.*
+(?i)aws_credentials.*
+(?i)aws_imds.*
+(?i)aws_sign.*
+AWS_C_AUTH_PACKAGE_ID
+aws_on_get_credentials_callback_fn
+aws_should_sign_header_fn
