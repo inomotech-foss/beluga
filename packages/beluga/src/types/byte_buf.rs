@@ -10,6 +10,7 @@ use crate::{Error, Result};
 #[repr(transparent)]
 pub struct ByteCursor<'a> {
     inner: aws_byte_cursor,
+    // the byte cursor is essentially just a slice
     marker: PhantomData<&'a [u8]>,
 }
 
