@@ -9,6 +9,15 @@
 It's a Rust crate designed to serve as a wrapper for the official AWS IoT SDK.
 It simplifies the integration of AWS IoT functionality into your Rust applications by providing a convenient and idiomatic Rust interface.
 
+# TODO
+
+(just tracking this here for the time being)
+
+- use ci to check whether the bindings are correct (i.e. up-to-date and also they don't change depending on which platform they're generated on)
+- use ci to run tests on various platforms to ensure we can compile on and to all the supported targets
+- split up the beluga crate into parts basically like tokio and other crates do it (use feature flags to toggle features)
+- use the rust allocator as the default for aws
+
 # 🚀 Getting Started
 
 ## Install CMake

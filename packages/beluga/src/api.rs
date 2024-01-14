@@ -6,6 +6,7 @@ use aws_c_sdkutils_sys::{aws_sdkutils_library_clean_up, aws_sdkutils_library_ini
 use crate::allocator::AllocatorRef;
 use crate::Allocator;
 
+// TODO: enforce correctness with this handle.
 pub struct ApiHandle {
     _p: (),
 }
