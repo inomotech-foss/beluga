@@ -1,133 +1,126 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::result::Result as StdResult;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use core::ffi::{c_int, c_void};
+use core::future::Future;
+use core::pin::Pin;
+use core::task::Poll;
 
-use pin_project::pin_project;
-use tokio::sync::oneshot::error::RecvError;
+use futures::FutureExt;
 
-use super::{ClientStatus, Message, MqttClient};
-use crate::{AwsMqttError, Error, Result};
+use crate::future::{CallbackFuture, CallbackFutureResolver};
+use crate::{Error, Result};
 
-/// The `CreateMqttFuture` struct represents a future for creating an MQTT
-/// client.
-#[pin_project]
-pub struct CreateMqttFuture<F>
-where
-    F: Future<Output = StdResult<ClientStatus, RecvError>>,
-{
-    client: Option<MqttClient>,
-    #[pin]
-    receiver: F,
+#[must_use]
+#[derive(Debug)]
+pub struct TaskFuture<T> {
+    state: State<T>,
 }
 
-impl<F> CreateMqttFuture<F>
-where
-    F: Future<Output = StdResult<ClientStatus, RecvError>>,
-{
-    pub(super) fn new(client: MqttClient, receiver: F) -> Self {
-        Self {
-            client: Some(client),
-            receiver,
+impl<T> TaskFuture<T> {
+    pub const fn check(&self) -> Result<()> {
+        self.state.check()
+    }
+
+    pub fn started(self) -> Result<Self> {
+        self.check().map(|()| self)
+    }
+
+    pub(crate) fn create(res: Result<()>, fut: CallbackFuture<Result<T>>) -> Self {
+        let state = match res {
+            Ok(()) => State::Running(fut),
+            Err(err) => State::Error(err),
+        };
+        Self { state }
+    }
+
+    pub(crate) unsafe fn resolve(userdata: *mut c_void, res: Result<T>) {
+        let resolver = CallbackFutureResolver::<Result<T>>::from_raw(userdata);
+        resolver.resolve(res);
+    }
+}
+
+impl<T> Future for TaskFuture<T> {
+    type Output = Result<T>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        this.state.poll_unpin(cx)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub struct PacketFuture<T> {
+    packet_id: u16,
+    state: State<T>,
+}
+
+impl<T> PacketFuture<T> {
+    #[must_use]
+    pub const fn packet_id(&self) -> u16 {
+        self.packet_id
+    }
+
+    pub const fn check(&self) -> Result<()> {
+        self.state.check()
+    }
+
+    pub fn started(self) -> Result<Self> {
+        self.check().map(|()| self)
+    }
+
+    pub(crate) fn create(packet_id: u16, fut: CallbackFuture<Result<T>>) -> Self {
+        let state = if packet_id == 0 {
+            State::Error(Error::last_in_current_thread())
+        } else {
+            State::Running(fut)
+        };
+        Self { packet_id, state }
+    }
+
+    pub(crate) unsafe fn resolve(userdata: *mut c_void, res: Result<T>) {
+        let resolver = CallbackFutureResolver::<Result<T>>::from_raw(userdata);
+        resolver.resolve(res);
+    }
+}
+
+impl PacketFuture<()> {
+    pub(crate) unsafe fn resolve_with_error_code(userdata: *mut c_void, error_code: c_int) {
+        Self::resolve(userdata, Error::check_rc(error_code));
+    }
+}
+
+impl<T> Future for PacketFuture<T> {
+    type Output = Result<T>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        this.state.poll_unpin(cx)
+    }
+}
+
+#[derive(Debug)]
+enum State<T> {
+    Error(Error),
+    Running(CallbackFuture<Result<T>>),
+}
+
+impl<T> State<T> {
+    const fn check(&self) -> Result<()> {
+        if let Self::Error(err) = *self {
+            Err(err)
+        } else {
+            Ok(())
         }
     }
 }
 
-impl<F> Future for CreateMqttFuture<F>
-where
-    F: Future<Output = StdResult<ClientStatus, RecvError>>,
-{
-    type Output = Result<Arc<MqttClient>>;
+impl<T> Future for State<T> {
+    type Output = Result<T>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        let poll = this.receiver.poll(cx);
-
-        match poll {
-            Poll::Ready(status) => {
-                if let Ok(ClientStatus::Connected) = status {
-                    this.client
-                        .take()
-                        .map(|client| Poll::Ready(Ok(Arc::new(client))))
-                        .unwrap_or(Poll::Ready(Err(Error::MqttClientCreate)))
-                } else {
-                    Poll::Ready(Err(Error::MqttClientCreate))
-                }
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-/// The [`SubscribeMessageFuture`] wraps a future that produces a [`Message`].
-#[pin_project]
-pub struct SubscribeMessageFuture<F>
-where
-    F: Future<Output = StdResult<Message, RecvError>>,
-{
-    #[pin]
-    receiver: F,
-}
-
-impl<F> SubscribeMessageFuture<F>
-where
-    F: Future<Output = StdResult<Message, RecvError>>,
-{
-    pub(super) fn new(receiver: F) -> Self {
-        Self { receiver }
-    }
-}
-
-impl<F> Future for SubscribeMessageFuture<F>
-where
-    F: Future<Output = StdResult<Message, RecvError>>,
-{
-    type Output = Result<Message>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.project().receiver.poll(cx) {
-            Poll::Ready(Ok(msg)) => Poll::Ready(Ok(msg)),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(Error::AwsReceiveMessage)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-/// The `OperationResponseFuture` represents the future that will resolve to the
-/// result of an operation.
-#[pin_project]
-pub struct OperationResponseFuture<F>
-where
-    F: Future<Output = StdResult<i32, RecvError>>,
-{
-    #[pin]
-    receiver: F,
-}
-
-impl<F> OperationResponseFuture<F>
-where
-    F: Future<Output = StdResult<i32, RecvError>>,
-{
-    pub(super) fn new(receiver: F) -> Self {
-        Self { receiver }
-    }
-}
-
-impl<F> Future for OperationResponseFuture<F>
-where
-    F: Future<Output = StdResult<i32, RecvError>>,
-{
-    type Output = Result<()>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.project().receiver.poll(cx) {
-            Poll::Ready(Ok(0)) => Poll::Ready(Ok(())),
-            Poll::Ready(Ok(error_code)) => Poll::Ready(Err(AwsMqttError::try_from(error_code)
-                .map(Error::from)
-                .unwrap_or(Error::AwsUnknownMqttError(error_code)))),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(Error::AwsReceiveResponse)),
-            Poll::Pending => Poll::Pending,
+    fn poll(self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        match this {
+            Self::Error(err) => Poll::Ready(Err(*err)),
+            Self::Running(fut) => fut.poll_unpin(cx),
         }
     }
 }

@@ -151,7 +151,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-crt"
+name = "aws-lc-sys"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2c6f9497a1bd3bed0a28a01b8836dbe9c7a2c521e47a14b165c64c4df592331"
+dependencies = [
+ "bindgen 0.68.1",
+ "cmake",
+ "dunce",
+ "fs_extra",
+ "libc",
+ "paste",
+]
+
+[[package]]
+name = "beluga"
 version = "0.1.0"
 dependencies = [
  "aws-c-auth-sys",
@@ -169,20 +183,6 @@ dependencies = [
  "env_logger",
  "futures",
  "log",
-]
-
-[[package]]
-name = "aws-lc-sys"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2c6f9497a1bd3bed0a28a01b8836dbe9c7a2c521e47a14b165c64c4df592331"
-dependencies = [
- "bindgen 0.68.1",
- "cmake",
- "dunce",
- "fs_extra",
- "libc",
- "paste",
 ]
 
 [[package]]

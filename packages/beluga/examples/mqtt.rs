@@ -1,6 +1,6 @@
-use aws_crt::io::{ClientBootstrap, EventLoopGroup, HostResolver, SocketOptions};
-use aws_crt::mqtt::{Client, ConnectionOptionsBuilder, Qos};
-use aws_crt::{Allocator, ApiHandle};
+use beluga::io::{ClientBootstrap, EventLoopGroup, HostResolver, SocketOptions};
+use beluga::mqtt::{Client, ConnectionOptionsBuilder, Qos};
+use beluga::{Allocator, ApiHandle};
 
 fn main() {
     env_logger::builder()
