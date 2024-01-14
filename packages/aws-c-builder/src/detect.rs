@@ -37,9 +37,9 @@ pub fn check_compiles_with_cc(ctx: &Context, build: &mut cc::Build, code: &str) 
     };
 
     std::fs::write(&c_file, code).expect("write c code compilation test code");
-    // TODO: this is too noisy
     build
         .cargo_metadata(false)
+        .cargo_warnings(false)
         .emit_rerun_if_env_changed(false)
         .warnings(false)
         .extra_warnings(false)

@@ -258,7 +258,7 @@ dependencies = [
 [[package]]
 name = "cc"
 version = "1.0.84"
-source = "git+https://github.com/roblabla/cc-rs?branch=compile-intermediates#1316b84e8e247c891b45368df0435218ad11941d"
+source = "git+https://github.com/inomotech-foss/cc-rs?branch=future#b809efd949e0ba9ce2fa5e713dfa19b370fc5b5e"
 dependencies = [
  "libc",
 ]

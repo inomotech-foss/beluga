@@ -36,7 +36,8 @@ beluga-glue = { path = "packages/beluga-glue" }
 aws-lc-sys = "0.12"
 bindgen = "0.69"
 # SEE: https://github.com/rust-lang/cc-rs/pull/914
-cc = { git = "https://github.com/roblabla/cc-rs", branch = "compile-intermediates", features = [
+# SEE: https://github.com/rust-lang/cc-rs/issues/916
+cc = { git = "https://github.com/inomotech-foss/cc-rs", branch = "future", features = [
     "parallel",
 ] }
 core-foundation-sys = "0.8"
