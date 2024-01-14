@@ -1,6 +1,6 @@
 [package]
 name = "aws-c-event-stream-sys"
-version = "0.1.0+v0.4.0"
+version = "0.1.0+v0.4.1"
 links = "aws-c-event-stream"
 authors.workspace = true
 edition.workspace = true

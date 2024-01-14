@@ -19,7 +19,7 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "aws-c-auth-sys"
-version = "0.1.0+v0.7.10"
+version = "0.1.0+v0.7.11"
 dependencies = [
  "aws-c-builder",
  "aws-c-cal-sys",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "aws-c-event-stream-sys"
-version = "0.1.0+v0.4.0"
+version = "0.1.0+v0.4.1"
 dependencies = [
  "aws-c-builder",
  "aws-c-common-sys",
@@ -90,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "aws-c-io-sys"
-version = "0.1.0+v0.14.0"
+version = "0.1.0+v0.14.1"
 dependencies = [
  "aws-c-builder",
  "aws-c-cal-sys",

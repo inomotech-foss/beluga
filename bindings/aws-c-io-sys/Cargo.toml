@@ -1,6 +1,6 @@
 [package]
 name = "aws-c-io-sys"
-version = "0.1.0+v0.14.0"
+version = "0.1.0+v0.14.1"
 links = "aws-c-io"
 authors.workspace = true
 edition.workspace = true

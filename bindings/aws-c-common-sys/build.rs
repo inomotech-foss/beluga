@@ -59,8 +59,15 @@ fn main() {
         builder.source_path("arch/generic");
     }
 
+    builder.aws_set_common_properties();
+
+    if ctx.is_unix() && !ctx.is_apple() && !ctx.cmake_system_name().is_bsd() {
+        builder
+            .define("_POSIX_C_SOURCE", "200809L")
+            .define("_XOPEN_SOURCE", "500");
+    }
+
     builder
-        .aws_set_common_properties()
         .aws_set_thread_affinity_method()
         .aws_set_thread_name_method();
 

@@ -76,8 +76,7 @@ pub type aws_json_on_value_encountered_const_fn = ::core::option::Option<
 pub type aws_thread_detach_state = ::core::ffi::c_uint;
 #[doc = " Specifies the join strategy used on an aws_thread, which in turn controls whether or not a thread participates\n in the managed thread system.  The managed thread system provides logic to guarantee a join on all participating\n threads at the cost of laziness (the user cannot control when joins happen).\n\n Manual - thread does not participate in the managed thread system; any joins must be done by the user.  This\n is the default.  The user must call aws_thread_clean_up(), but only after any desired join operation has completed.\n Not doing so will cause the windows handle to leak.\n\n Managed - the managed thread system will automatically perform a join some time after the thread's run function\n has completed.  It is an error to call aws_thread_join on a thread configured with the managed join strategy.  The\n managed thread system will call aws_thread_clean_up() on the thread after the background join has completed.\n\n Additionally, an API exists, aws_thread_join_all_managed(), which blocks and returns when all outstanding threads\n with the managed strategy have fully joined.  This API is useful for tests (rather than waiting for many individual\n signals) and program shutdown or DLL unload.  This API is automatically invoked by the common library clean up\n function.  If the common library clean up is called from a managed thread, this will cause deadlock.\n\n Lazy thread joining is done only when threads finish their run function or when the user calls\n aws_thread_join_all_managed().  This means it may be a long time between thread function completion and the join\n being applied, but the queue of unjoined threads is always one or fewer so there is no critical resource\n backlog.\n\n Currently, only event loop group async cleanup and host resolver threads participate in the managed thread system.\n Additionally, event loop threads will increment and decrement the pending join count (they are manually joined\n internally) in order to have an accurate view of internal thread usage and also to prevent failure to release\n an event loop group fully from allowing aws_thread_join_all_managed() from running to completion when its\n intent is such that it should block instead."]
 pub type aws_thread_join_strategy = ::core::ffi::c_uint;
-pub type aws_thread_once = [u64; 2usize];
-pub type aws_thread_id_t = pthread_t;
+pub type aws_thread_id_t = ::core::ffi::c_ulong;
 pub type aws_thread_atexit_fn =
     ::core::option::Option<unsafe extern "C" fn(user_data: *mut ::core::ffi::c_void)>;
 #[doc = " Controls what log calls pass through the logger and what log calls get filtered out.\n If a log level has a value of X, then all log calls using a level <= X will appear, while\n those using a value > X will not occur.\n\n You can filter both dynamically (by setting the log level on the logger object) or statically\n (by defining AWS_STATIC_LOG_LEVEL to be an appropriate integer module-wide).  Statically filtered\n log calls will be completely compiled out but require a rebuild if you want to get more detail\n about what's happening."]
@@ -324,8 +323,9 @@ pub struct aws_cli_option {
     pub val: ::core::ffi::c_int,
 }
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct aws_condition_variable {
-    pub condition_handle: pthread_cond_t,
+    pub condition_handle: *mut ::core::ffi::c_void,
     pub initialized: bool,
 }
 #[repr(C)]
@@ -389,6 +389,12 @@ pub struct aws_string {
     pub bytes: [u8; 1usize],
 }
 #[repr(C)]
+pub struct aws_wstring {
+    pub allocator: *mut aws_allocator,
+    pub len: usize,
+    pub bytes: [wchar_t; 1usize],
+}
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct aws_thread_options {
     pub stack_size: usize,
@@ -398,9 +404,11 @@ pub struct aws_thread_options {
     pub name: aws_byte_cursor,
 }
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct aws_thread {
     pub allocator: *mut aws_allocator,
     pub detach_state: aws_thread_detach_state,
+    pub thread_handle: *mut ::core::ffi::c_void,
     pub thread_id: aws_thread_id_t,
 }
 #[repr(C)]
@@ -525,8 +533,9 @@ pub struct aws_log_writer_file_options {
     pub file: *mut FILE,
 }
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct aws_mutex {
-    pub mutex_handle: pthread_mutex_t,
+    pub mutex_handle: *mut ::core::ffi::c_void,
     pub initialized: bool,
 }
 #[repr(C)]
@@ -589,8 +598,9 @@ pub struct aws_ring_buffer {
     pub allocation_end: *mut u8,
 }
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct aws_rw_lock {
-    pub lock_handle: pthread_rwlock_t,
+    pub lock_handle: *mut ::core::ffi::c_void,
 }
 #[doc = " Pattern-struct that functions as a base \"class\" for all statistics structures.  To conform\n to the pattern, a statistics structure must have its first member be the category.  In that\n case it becomes \"safe\" to cast from aws_crt_statistics_base to the specific statistics structure\n based on the category value."]
 #[repr(C)]
@@ -729,10 +739,10 @@ pub const AWS_OP_SUCCESS: u32 = 0;
 pub const AWS_OP_ERR: i32 = -1;
 pub const AWS_ERROR_ENUM_STRIDE_BITS: u32 = 10;
 pub const AWS_ERROR_ENUM_STRIDE: u32 = 1024;
-pub const AWS_PATH_DELIM: u8 = 47u8;
+pub const AWS_PATH_DELIM: u8 = 92u8;
 #[allow(unsafe_code)]
 pub const AWS_PATH_DELIM_STR: &::core::ffi::CStr =
-    unsafe { ::core::ffi::CStr::from_bytes_with_nul_unchecked(b"/\0") };
+    unsafe { ::core::ffi::CStr::from_bytes_with_nul_unchecked(b"\\\0") };
 pub const AWS_THREAD_NAME_RECOMMENDED_STRLEN: u32 = 15;
 pub const AWS_LOG_LEVEL_NONE: u32 = 0;
 pub const AWS_LOG_LEVEL_FATAL: u32 = 1;
@@ -895,6 +905,12 @@ pub const AWS_PLATFORM_OS_UNIX: aws_platform_os = 2;
 pub const AWS_TASK_STATUS_RUN_READY: aws_task_status = 0;
 pub const AWS_TASK_STATUS_CANCELED: aws_task_status = 1;
 #[repr(C)]
+#[repr(align(8))]
+#[derive(Copy, Clone)]
+pub union aws_thread_once {
+    pub _bindgen_opaque_blob: u64,
+}
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub union aws_task__bindgen_ty_1 {
     pub scheduled: bool,
@@ -910,10 +926,6 @@ extern "C" {
     pub fn aws_allocator_is_valid(alloc: *const aws_allocator) -> bool;
     pub fn aws_default_allocator() -> *mut aws_allocator;
     pub fn aws_aligned_allocator() -> *mut aws_allocator;
-    #[doc = " Wraps a CFAllocator around aws_allocator. For Mac only. Use this anytime you need a CFAllocatorRef for interacting\n with Apple Frameworks. Unfortunately, it allocates memory so we can't make it static file scope, be sure to call\n aws_wrapped_cf_allocator_destroy when finished."]
-    pub fn aws_wrapped_cf_allocator_new(allocator: *mut aws_allocator) -> CFAllocatorRef;
-    #[doc = " Cleans up any resources alloced in aws_wrapped_cf_allocator_new."]
-    pub fn aws_wrapped_cf_allocator_destroy(allocator: CFAllocatorRef);
     #[doc = " Returns at least `size` of memory ready for usage. In versions v0.6.8 and prior, this function was allowed to return\n NULL. In later versions, if allocator->mem_acquire() returns NULL, this function will assert and exit. To handle\n conditions where OOM is not a fatal error, allocator->mem_acquire() is responsible for finding/reclaiming/running a\n GC etc...before returning."]
     pub fn aws_mem_acquire(allocator: *mut aws_allocator, size: usize) -> *mut ::core::ffi::c_void;
     #[doc = " Allocates a block of memory for an array of num elements, each of them size bytes long, and initializes all its bits\n to zero. In versions v0.6.8 and prior, this function was allowed to return NULL.\n In later versions, if allocator->mem_calloc() returns NULL, this function will assert and exit. To handle\n conditions where OOM is not a fatal error, allocator->mem_calloc() is responsible for finding/reclaiming/running a\n GC etc...before returning."]
@@ -1955,6 +1967,52 @@ extern "C" {
         destroy_value_fn: aws_hash_callback_destroy_fn,
         max_items: usize,
     ) -> *mut aws_cache;
+    #[doc = " For windows only. Converts `to_convert` to a windows whcar format (UTF-16) for use with windows OS interop.\n\n Note: `to_convert` is assumed to be UTF-8 or ASCII.\n\n returns NULL on failure."]
+    pub fn aws_string_convert_to_wstring(
+        allocator: *mut aws_allocator,
+        to_convert: *const aws_string,
+    ) -> *mut aws_wstring;
+    #[doc = " For windows only. Converts `to_convert` to a windows whcar format (UTF-16) for use with windows OS interop.\n\n Note: `to_convert` is assumed to be UTF-8 or ASCII.\n\n returns NULL on failure."]
+    pub fn aws_string_convert_to_wchar_from_byte_cursor(
+        allocator: *mut aws_allocator,
+        to_convert: *const aws_byte_cursor,
+    ) -> *mut aws_wstring;
+    #[doc = " clean up str."]
+    pub fn aws_wstring_destroy(str_: *mut aws_wstring);
+    #[doc = " For windows only. Converts `to_convert` from a windows whcar format (UTF-16) to UTF-8.\n\n Note: `to_convert` is assumed to be wchar already.\n\n returns NULL on failure."]
+    pub fn aws_string_convert_from_wchar_str(
+        allocator: *mut aws_allocator,
+        to_convert: *const aws_wstring,
+    ) -> *mut aws_string;
+    #[doc = " For windows only. Converts `to_convert` from a windows whcar format (UTF-16) to UTF-8.\n\n Note: `to_convert` is assumed to be wchar already.\n\n returns NULL on failure."]
+    pub fn aws_string_convert_from_wchar_byte_cursor(
+        allocator: *mut aws_allocator,
+        to_convert: *const aws_byte_cursor,
+    ) -> *mut aws_string;
+    #[doc = " For windows only. Converts `to_convert` from a windows whcar format (UTF-16) to UTF-8.\n\n Note: `to_convert` is assumed to be wchar already.\n\n returns NULL on failure."]
+    pub fn aws_string_convert_from_wchar_c_str(
+        allocator: *mut aws_allocator,
+        to_convert: *const wchar_t,
+    ) -> *mut aws_string;
+    #[doc = " Create a new wide string from a byte cursor. This assumes that w_str_cur is already in utf-16.\n\n returns NULL on failure."]
+    pub fn aws_wstring_new_from_cursor(
+        allocator: *mut aws_allocator,
+        w_str_cur: *const aws_byte_cursor,
+    ) -> *mut aws_wstring;
+    #[doc = " Create a new wide string from a utf-16 string enclosing array. The length field is in number of characters not\n counting the null terminator.\n\n returns NULL on failure."]
+    pub fn aws_wstring_new_from_array(
+        allocator: *mut aws_allocator,
+        w_str: *const wchar_t,
+        length: usize,
+    ) -> *mut aws_wstring;
+    #[doc = " Returns a wchar_t * pointer for use with windows OS interop."]
+    pub fn aws_wstring_c_str(str_: *const aws_wstring) -> *const wchar_t;
+    #[doc = " Returns the number of characters in the wchar string. NOTE: This is not the length in bytes or the buffer size."]
+    pub fn aws_wstring_num_chars(str_: *const aws_wstring) -> usize;
+    #[doc = " Returns the length in bytes for the buffer."]
+    pub fn aws_wstring_size_bytes(str_: *const aws_wstring) -> usize;
+    #[doc = " Verifies that str is a valid string. Returns true if it's valid and false otherwise."]
+    pub fn aws_wstring_is_valid(str_: *const aws_wstring) -> bool;
     #[doc = " Returns true if bytes of string are the same, false otherwise."]
     pub fn aws_string_eq(a: *const aws_string, b: *const aws_string) -> bool;
     #[doc = " Returns true if bytes of string are equivalent, using a case-insensitive comparison."]

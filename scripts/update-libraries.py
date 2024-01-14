@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# TODO: replace with rust impl
+
 import argparse
 import dataclasses
 import itertools

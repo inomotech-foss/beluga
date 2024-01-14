@@ -76,7 +76,7 @@ pub type aws_json_on_value_encountered_const_fn = ::core::option::Option<
 pub type aws_thread_detach_state = ::core::ffi::c_uint;
 #[doc = " Specifies the join strategy used on an aws_thread, which in turn controls whether or not a thread participates\n in the managed thread system.  The managed thread system provides logic to guarantee a join on all participating\n threads at the cost of laziness (the user cannot control when joins happen).\n\n Manual - thread does not participate in the managed thread system; any joins must be done by the user.  This\n is the default.  The user must call aws_thread_clean_up(), but only after any desired join operation has completed.\n Not doing so will cause the windows handle to leak.\n\n Managed - the managed thread system will automatically perform a join some time after the thread's run function\n has completed.  It is an error to call aws_thread_join on a thread configured with the managed join strategy.  The\n managed thread system will call aws_thread_clean_up() on the thread after the background join has completed.\n\n Additionally, an API exists, aws_thread_join_all_managed(), which blocks and returns when all outstanding threads\n with the managed strategy have fully joined.  This API is useful for tests (rather than waiting for many individual\n signals) and program shutdown or DLL unload.  This API is automatically invoked by the common library clean up\n function.  If the common library clean up is called from a managed thread, this will cause deadlock.\n\n Lazy thread joining is done only when threads finish their run function or when the user calls\n aws_thread_join_all_managed().  This means it may be a long time between thread function completion and the join\n being applied, but the queue of unjoined threads is always one or fewer so there is no critical resource\n backlog.\n\n Currently, only event loop group async cleanup and host resolver threads participate in the managed thread system.\n Additionally, event loop threads will increment and decrement the pending join count (they are manually joined\n internally) in order to have an accurate view of internal thread usage and also to prevent failure to release\n an event loop group fully from allowing aws_thread_join_all_managed() from running to completion when its\n intent is such that it should block instead."]
 pub type aws_thread_join_strategy = ::core::ffi::c_uint;
-pub type aws_thread_once = [u64; 2usize];
+pub type aws_thread_once = u32;
 pub type aws_thread_id_t = pthread_t;
 pub type aws_thread_atexit_fn =
     ::core::option::Option<unsafe extern "C" fn(user_data: *mut ::core::ffi::c_void)>;
@@ -215,10 +215,10 @@ pub struct aws_byte_cursor {
     pub ptr: *mut u8,
 }
 #[repr(C)]
-#[repr(align(8))]
+#[repr(align(4))]
 #[derive(Debug, Copy, Clone)]
 pub struct aws_hash_table {
-    pub _bindgen_opaque_blob: u64,
+    pub _bindgen_opaque_blob: u32,
 }
 #[doc = " Represents an element in the hash table. Various operations on the hash\n table may provide pointers to elements stored within the hash table;\n generally, calling code may alter value, but must not alter key (or any\n information used to compute key's hash code).\n\n Pointers to elements within the hash are invalidated whenever an operation\n which may change the number of elements in the hash is invoked (i.e. put,\n delete, clear, and clean_up), regardless of whether the number of elements\n actually changes."]
 #[repr(C)]
@@ -476,10 +476,10 @@ pub struct aws_log_channel {
     pub impl_: *mut ::core::ffi::c_void,
 }
 #[repr(C)]
-#[repr(align(8))]
+#[repr(align(4))]
 #[derive(Debug, Copy, Clone)]
 pub struct aws_log_formatter_vtable {
-    pub _bindgen_opaque_blob: [u64; 2usize],
+    pub _bindgen_opaque_blob: [u32; 2usize],
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -734,6 +734,7 @@ pub const AWS_PATH_DELIM: u8 = 47u8;
 pub const AWS_PATH_DELIM_STR: &::core::ffi::CStr =
     unsafe { ::core::ffi::CStr::from_bytes_with_nul_unchecked(b"/\0") };
 pub const AWS_THREAD_NAME_RECOMMENDED_STRLEN: u32 = 15;
+pub const AWS_THREAD_ONCE_STATIC_INIT: u32 = 0;
 pub const AWS_LOG_LEVEL_NONE: u32 = 0;
 pub const AWS_LOG_LEVEL_FATAL: u32 = 1;
 pub const AWS_LOG_LEVEL_ERROR: u32 = 2;
@@ -910,10 +911,6 @@ extern "C" {
     pub fn aws_allocator_is_valid(alloc: *const aws_allocator) -> bool;
     pub fn aws_default_allocator() -> *mut aws_allocator;
     pub fn aws_aligned_allocator() -> *mut aws_allocator;
-    #[doc = " Wraps a CFAllocator around aws_allocator. For Mac only. Use this anytime you need a CFAllocatorRef for interacting\n with Apple Frameworks. Unfortunately, it allocates memory so we can't make it static file scope, be sure to call\n aws_wrapped_cf_allocator_destroy when finished."]
-    pub fn aws_wrapped_cf_allocator_new(allocator: *mut aws_allocator) -> CFAllocatorRef;
-    #[doc = " Cleans up any resources alloced in aws_wrapped_cf_allocator_new."]
-    pub fn aws_wrapped_cf_allocator_destroy(allocator: CFAllocatorRef);
     #[doc = " Returns at least `size` of memory ready for usage. In versions v0.6.8 and prior, this function was allowed to return\n NULL. In later versions, if allocator->mem_acquire() returns NULL, this function will assert and exit. To handle\n conditions where OOM is not a fatal error, allocator->mem_acquire() is responsible for finding/reclaiming/running a\n GC etc...before returning."]
     pub fn aws_mem_acquire(allocator: *mut aws_allocator, size: usize) -> *mut ::core::ffi::c_void;
     #[doc = " Allocates a block of memory for an array of num elements, each of them size bytes long, and initializes all its bits\n to zero. In versions v0.6.8 and prior, this function was allowed to return NULL.\n In later versions, if allocator->mem_calloc() returns NULL, this function will assert and exit. To handle\n conditions where OOM is not a fatal error, allocator->mem_calloc() is responsible for finding/reclaiming/running a\n GC etc...before returning."]

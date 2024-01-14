@@ -89,6 +89,10 @@ impl Context {
         matches!(self.target_family, TargetFamily::Windows)
     }
 
+    pub fn is_unix(&self) -> bool {
+        matches!(self.target_family, TargetFamily::Unix)
+    }
+
     pub fn is_apple(&self) -> bool {
         matches!(self.target_vendor, TargetVendor::Apple)
     }
