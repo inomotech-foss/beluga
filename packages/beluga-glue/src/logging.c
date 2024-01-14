@@ -1,18 +1,16 @@
 #include <aws/common/logging.h>
 #include <stdarg.h>
 
-// naming:
-//  acglu: AWS CRT Glue
-//  arglu: AWS Rust Glue
+struct beluga_logger {
+  void *p_impl;
+  bool (*log_enabled)(void *p_impl, enum aws_log_level log_level,
+                      aws_log_subject_t subject);
+  int (*log)(void *p_impl, enum aws_log_level log_level,
+             aws_log_subject_t subject, struct aws_string *message);
+};
 
-bool arglu_log_enabled(void *p_impl, enum aws_log_level log_level,
-                       aws_log_subject_t subject);
-int arglu_log(void *p_impl, enum aws_log_level log_level,
-              aws_log_subject_t subject, struct aws_string *message);
-
-static struct aws_string *
-s_acglu_format_to_string(struct aws_allocator *allocator, const char *format,
-                         va_list args) {
+static struct aws_string *s_format_to_string(struct aws_allocator *allocator,
+                                             const char *format, va_list args) {
   va_list tmp_args;
   va_copy(tmp_args, args);
 #ifdef _WIN32
@@ -46,21 +44,22 @@ s_acglu_format_to_string(struct aws_allocator *allocator, const char *format,
   return raw_string;
 }
 
-int acglu_log(struct aws_logger *logger, enum aws_log_level log_level,
-              aws_log_subject_t subject, const char *format, ...) {
-  if (!arglu_log_enabled(logger->p_impl, log_level, subject)) {
+int beluga_logging_log(struct aws_logger *logger, enum aws_log_level log_level,
+                       aws_log_subject_t subject, const char *format, ...) {
+  struct beluga_logger *b_log = (struct beluga_logger *)logger->p_impl;
+  if (!b_log->log_enabled(b_log->p_impl, log_level, subject)) {
     return AWS_OP_SUCCESS;
   }
 
   va_list args;
   va_start(args, format);
   struct aws_string *message =
-      s_acglu_format_to_string(logger->allocator, format, args);
+      s_format_to_string(logger->allocator, format, args);
   va_end(args);
 
   if (message == NULL) {
     return AWS_OP_ERR;
   }
 
-  return arglu_log(logger->p_impl, log_level, subject, message);
+  return b_log->log(b_log->p_impl, log_level, subject, message);
 }

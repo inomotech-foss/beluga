@@ -13,7 +13,6 @@ mod allocator;
 mod api;
 mod error;
 mod future;
-mod glue;
 pub mod io;
 mod logging;
 pub mod mqtt;

@@ -1,14 +1,16 @@
 use alloc::borrow::Cow;
 use alloc::string::String;
-use core::ffi::CStr;
+use core::ffi::{c_int, c_void, CStr};
 use core::mem::MaybeUninit;
 use core::ops::RangeInclusive;
 
 use aws_c_auth_sys::AWS_C_AUTH_PACKAGE_ID;
 use aws_c_cal_sys::AWS_C_CAL_PACKAGE_ID;
 use aws_c_common_sys::{
-    aws_log_subject_name, aws_log_subject_t, aws_logger, aws_logger_set, AWS_C_COMMON_PACKAGE_ID,
-    AWS_LOG_SUBJECT_STRIDE_BITS,
+    aws_log_level, aws_log_subject_name, aws_log_subject_t, aws_logger, aws_logger_set,
+    aws_logger_vtable, aws_string, AWS_C_COMMON_PACKAGE_ID, AWS_LL_DEBUG, AWS_LL_ERROR,
+    AWS_LL_FATAL, AWS_LL_INFO, AWS_LL_TRACE, AWS_LL_WARN, AWS_LOG_SUBJECT_STRIDE_BITS,
+    AWS_OP_SUCCESS,
 };
 use aws_c_compression_sys::AWS_C_COMPRESSION_PACKAGE_ID;
 use aws_c_event_stream_sys::AWS_C_EVENT_STREAM_PACKAGE_ID;
@@ -18,8 +20,9 @@ use aws_c_iot_sys::AWS_C_IOTDEVICE_PACKAGE_ID;
 use aws_c_mqtt_sys::AWS_C_MQTT_PACKAGE_ID;
 use aws_c_s3_sys::AWS_C_S3_PACKAGE_ID;
 use aws_c_sdkutils_sys::AWS_C_SDKUTILS_PACKAGE_ID;
+use beluga_glue::logging::{beluga_logger, beluga_logging_log};
 
-use crate::AllocatorRef;
+use crate::{AllocatorRef, AwsString};
 
 mod subject_tree;
 
@@ -28,7 +31,7 @@ mod subject_tree;
 /// Must only be called once.
 pub unsafe fn init_unchecked_racy(allocator: AllocatorRef) {
     static mut LOGGER: MaybeUninit<aws_logger> = MaybeUninit::uninit();
-    LOGGER.write(crate::glue::logging::create_logger(allocator));
+    LOGGER.write(create_logger(allocator));
     unsafe { aws_logger_set(LOGGER.as_mut_ptr()) };
 }
 
@@ -97,5 +100,96 @@ impl PackageId {
         let begin = Subject(self.0 * Subject::STRIDE);
         let end = Subject((self.0 + 1) * Subject::STRIDE - 1);
         begin..=end
+    }
+}
+
+fn create_logger(allocator: AllocatorRef) -> aws_logger {
+    extern "C" fn get_log_level(
+        _logger: *mut aws_logger,
+        _subject: aws_log_subject_t,
+    ) -> aws_log_level {
+        let level_filter = log::STATIC_MAX_LEVEL.min(log::max_level());
+        log_level_filter_to_aws(level_filter)
+    }
+
+    extern "C" fn set_log_level(_logger: *mut aws_logger, log_level: aws_log_level) -> c_int {
+        let level = aws_level_to_log(log_level);
+        log::set_max_level(level.to_level_filter());
+        AWS_OP_SUCCESS as _
+    }
+
+    extern "C" fn clean_up(_logger: *mut aws_logger) {}
+
+    static VTABLE: aws_logger_vtable = aws_logger_vtable {
+        log: Some(beluga_logging_log),
+        get_log_level: Some(get_log_level),
+        set_log_level: Some(set_log_level),
+        clean_up: Some(clean_up),
+    };
+
+    extern "C" fn log_enabled(
+        _p_impl: *mut c_void,
+        log_level: aws_log_level,
+        subject: aws_log_subject_t,
+    ) -> bool {
+        let subject = Subject(subject);
+        let Some(target) = subject.static_target() else {
+            // if we don't know this subject just treat it as enabled and let the logger
+            // figure it out. global filters are already checked before.
+            return true;
+        };
+        log::log_enabled!(target: target, aws_level_to_log(log_level))
+    }
+
+    unsafe extern "C" fn log(
+        _p_impl: *mut c_void,
+        log_level: aws_log_level,
+        subject: aws_log_subject_t,
+        message: *mut aws_string,
+    ) -> c_int {
+        let subject = Subject(subject);
+        let message = AwsString::from_raw_unchecked(message);
+
+        let target = subject.target();
+        log::log!(target: &target, aws_level_to_log(log_level), "{}", message);
+        AWS_OP_SUCCESS as _
+    }
+
+    static BELUGA_LOGGER: beluga_logger = beluga_logger {
+        p_impl: core::ptr::null_mut(),
+        log_enabled,
+        log,
+    };
+
+    aws_logger {
+        vtable: core::ptr::addr_of!(VTABLE).cast_mut(),
+        allocator: allocator.as_ptr(),
+        p_impl: core::ptr::addr_of!(BELUGA_LOGGER)
+            .cast::<c_void>()
+            .cast_mut(),
+    }
+}
+
+const fn aws_level_to_log(level: aws_log_level) -> log::Level {
+    use log::Level::{Debug, Error, Info, Trace, Warn};
+    match level {
+        AWS_LL_FATAL | AWS_LL_ERROR => Error,
+        AWS_LL_WARN => Warn,
+        AWS_LL_INFO => Info,
+        AWS_LL_DEBUG => Debug,
+        // trace and anything else
+        _ => Trace,
+    }
+}
+
+const fn log_level_filter_to_aws(level: log::LevelFilter) -> aws_log_level {
+    use log::LevelFilter::{Debug, Error, Info, Off, Trace, Warn};
+    match level {
+        Off => AWS_LL_FATAL,
+        Error => AWS_LL_ERROR,
+        Warn => AWS_LL_WARN,
+        Info => AWS_LL_INFO,
+        Debug => AWS_LL_DEBUG,
+        Trace => AWS_LL_TRACE,
     }
 }

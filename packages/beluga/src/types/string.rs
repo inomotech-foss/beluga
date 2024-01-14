@@ -127,6 +127,14 @@ impl AwsString {
         unsafe { Self::allocate_uninit(allocator, 0) }
     }
 
+    /// # Safety
+    ///
+    /// `raw` must point to a non-null valid string. The resulting [AwsString]
+    /// takes ownership, so the string must not be freed separately.
+    pub unsafe fn from_raw_unchecked(raw: *mut aws_string) -> Self {
+        Self(NonNull::new_unchecked(raw.cast()))
+    }
+
     #[inline]
     fn get_allocation_size(len: usize) -> Result<usize> {
         len.checked_add(core::mem::size_of::<aws_string>())

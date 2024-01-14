@@ -179,10 +179,18 @@ dependencies = [
  "aws-c-mqtt-sys",
  "aws-c-s3-sys",
  "aws-c-sdkutils-sys",
- "cc 1.0.84",
+ "beluga-glue",
  "env_logger",
  "futures",
  "log",
+]
+
+[[package]]
+name = "beluga-glue"
+version = "0.1.0"
+dependencies = [
+ "aws-c-common-sys",
+ "cc 1.0.84",
 ]
 
 [[package]]

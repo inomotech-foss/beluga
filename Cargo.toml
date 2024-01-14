@@ -30,7 +30,8 @@ aws-c-sdkutils-sys = { path = "bindings/aws-c-sdkutils-sys" }
 aws-checksums-sys = { path = "bindings/aws-checksums-sys" }
 
 aws-c-builder = { path = "packages/aws-c-builder" }
-aws-crt = { path = "packages/aws-crt" }
+beluga = { path = "packages/beluga" }
+beluga-glue = { path = "packages/beluga-glue" }
 
 aws-lc-sys = "0.12"
 bindgen = "0.69"

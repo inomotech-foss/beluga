@@ -20,11 +20,9 @@ aws-c-iot-sys.workspace = true
 aws-c-mqtt-sys.workspace = true
 aws-c-s3-sys.workspace = true
 aws-c-sdkutils-sys.workspace = true
+beluga-glue.workspace = true
 futures.workspace = true
 log.workspace = true
-
-[build-dependencies]
-cc.workspace = true
 
 [dev-dependencies]
 env_logger.workspace = true
