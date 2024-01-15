@@ -10,6 +10,7 @@ fn main() {
         builder.source_path("windows/iocp");
         event_loop_define = "IO_COMPLETION_PORTS";
     } else if ctx.cmake_system_name().is_linux() || ctx.cmake_system_name().is_android() {
+        builder.source_path("linux").source_path("posix");
         event_loop_define = "EPOLL";
         use_s2n = true;
     } else if ctx.is_apple() {
