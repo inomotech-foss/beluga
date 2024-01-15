@@ -6,6 +6,8 @@ use crate::Context;
 pub struct CommonProperties {
     has_stdint: bool,
     has_stdbool: bool,
+    has_wgnu: bool,
+    no_gnu_expr: bool,
     have_sysconf: bool,
     compiler_specific: CompilerSpecific,
 }
@@ -16,6 +18,31 @@ impl CommonProperties {
 
         let has_stdint = super::check_include_file(ctx, "stdint.h");
         let has_stdbool = super::check_include_file(ctx, "stdbool.h");
+
+        let has_wgnu = ctx
+            .cc_build
+            .is_flag_supported("-Wgnu")
+            .expect("check -Wgnu compiler flag");
+        let no_gnu_expr = if has_wgnu {
+            // some platforms implement htonl family of functions via GNU statement expressions (https://gcc.gnu.org/onlinedocs/gcc/Statement-Exprs.html)
+            // which generates -Wgnu-statement-expression warning.
+            super::check_compiles_with_cc(
+                ctx,
+                ctx.cc_build.clone().flag("-Wgnu"),
+                r#"
+#include <netinet/in.h>
+
+int main() {
+    uint32_t x = 0;
+    x = htonl(x);
+    return (int)x;
+}
+"#,
+            )
+        } else {
+            false
+        };
+
         // some platforms (especially when cross-compiling) do not have the sysconf API
         // in their toolchain files.
         let have_sysconf = super::check_compiles(
@@ -28,6 +55,8 @@ int main() { sysconf(_SC_NPROCESSORS_ONLN); }
         Self {
             has_stdint,
             has_stdbool,
+            has_wgnu,
+            no_gnu_expr,
             have_sysconf,
             compiler_specific: CompilerSpecific::detect(ctx),
         }
@@ -39,6 +68,14 @@ int main() { sysconf(_SC_NPROCESSORS_ONLN); }
         }
         if !self.has_stdbool {
             build.define("NO_STDBOOL", None);
+        }
+        if self.has_wgnu {
+            build
+                .flag("-Wgnu")
+                .flag("-Wno-gnu-zero-variadic-macro-arguments");
+        }
+        if !self.no_gnu_expr {
+            build.flag("-Wno-gnu-statement-expression");
         }
         if self.have_sysconf {
             build.define("HAVE_SYSCONF", None);
