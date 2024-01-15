@@ -22,6 +22,12 @@ enable-tracing = ["dep:ittapi-sys"]
 ittapi-sys = { workspace = true, optional = true }
 libc.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+] }
+
 [target.'cfg(target_vendor = "apple")'.dependencies]
 core-foundation-sys.workspace = true
 

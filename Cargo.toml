@@ -48,7 +48,4 @@ libc = "0.2"
 log = "0.4"
 s2n-tls-sys = "0.1.0"
 security-framework-sys = "2"
-windows-sys = { version = "0.52", features = [
-    "Win32_Foundation",
-    "Win32_Security_Cryptography",
-] }
+windows-sys = "0.52"
