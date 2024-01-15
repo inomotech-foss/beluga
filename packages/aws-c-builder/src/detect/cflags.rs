@@ -50,7 +50,7 @@ int main() { sysconf(_SC_NPROCESSORS_ONLN); }
         if !enable_tracing {
             build.define("INTEL_NO_ITTNOTIFY_API", None);
         }
-        build.std("c99");
+        build.std("gnu99");
     }
 
     pub fn have_posix_large_file_support(&self) -> bool {
