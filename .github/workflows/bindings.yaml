@@ -100,4 +100,4 @@ jobs:
           sudo apt-get update
           sudo apt-get install g++-multilib
         if: matrix.build == 'linux32'
-      - run: cargo test ${{ (runner.debug && '-v') || '' }} ${{ matrix.no_run }}
+      - run: cargo test ${{ (runner.debug && '-vv') || '' }} ${{ matrix.no_run }}
