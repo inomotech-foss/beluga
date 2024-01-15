@@ -19,7 +19,8 @@ AWS_EXTERN_C_BEGIN
 
 
 #if __MINGW32__
-u_long htonl(u_long hostlong);
+/* defined in winsock2.h, but we don't want to include it */
+unsigned long htonl(unsigned long hostlong);
 #endif /* __MINGW32__ */
 
 /**
