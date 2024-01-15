@@ -50,7 +50,6 @@ int main() { sysconf(_SC_NPROCESSORS_ONLN); }
         if !enable_tracing {
             build.define("INTEL_NO_ITTNOTIFY_API", None);
         }
-        build.std("gnu99");
     }
 
     pub fn have_posix_large_file_support(&self) -> bool {
@@ -105,8 +104,10 @@ int main() {
                 outline_atomics,
                 posix_lfs,
             } => {
-                // TODO: cache flag_if_supported
-                build.flag("-Wstrict-prototypes").flag_if_supported("-fPIC");
+                build
+                    .flag("-Wstrict-prototypes")
+                    .flag_if_supported("-fPIC")
+                    .std("gnu99");
                 if *outline_atomics {
                     build.flag("-moutline-atomics");
                 }
