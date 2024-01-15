@@ -1,5 +1,6 @@
 [package]
 name = "beluga-glue"
+description = "Extra C glue code required by beluga."
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true

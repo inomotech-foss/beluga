@@ -1,6 +1,8 @@
 #include <aws/common/logging.h>
 #include <stdarg.h>
 
+// see logging.rs for documentation
+
 struct beluga_logger {
   void *p_impl;
   bool (*log_enabled)(void *p_impl, enum aws_log_level log_level,
