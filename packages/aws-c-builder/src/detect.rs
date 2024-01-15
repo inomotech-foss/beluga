@@ -14,8 +14,6 @@ mod thread_affinity;
 mod thread_name;
 
 /// Checks whether the given code snippet successfully compiles.
-///
-/// Must not be called in parallel.
 pub fn check_compiles(ctx: &Context, code: &str) -> bool {
     check_compiles_with_cc(ctx, &mut ctx.cc_build.clone(), code)
 }
@@ -23,18 +21,20 @@ pub fn check_compiles(ctx: &Context, code: &str) -> bool {
 /// Checks whether the given code snippet successfully compiles with a
 /// pre-configured [`cc::Build`].
 ///
-/// Must not be called in parallel.
+/// Based on CMake's implementation.
+/// See: <https://github.com/Kitware/CMake/blob/master/Modules/CheckCSourceCompiles.cmake>
 pub fn check_compiles_with_cc(ctx: &Context, build: &mut cc::Build, code: &str) -> bool {
     let out_dir = ctx.out_dir.join("comptest");
     std::fs::create_dir_all(&out_dir).expect("create comptest dir");
 
-    let c_file = {
+    let name = {
         // we want at least some way to investigate compilation issues, but it also
         // doesn't need to be as complicated as taking the hash from the source code
         static ID: AtomicU8 = AtomicU8::new(0);
         let id = ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        out_dir.join(format!("test_{id:06X}.c"))
+        format!("test_{id:06X}.c")
     };
+    let c_file = out_dir.join(&name);
 
     std::fs::write(&c_file, code).expect("write c code compilation test code");
     build
@@ -46,13 +46,13 @@ pub fn check_compiles_with_cc(ctx: &Context, build: &mut cc::Build, code: &str) 
         .opt_level(0)
         .out_dir(out_dir)
         .file(c_file)
-        .try_compile_intermediates()
+        .try_compile(&name)
         .is_ok()
 }
 
 /// Checks whether a given symbol is available during compilation of C code.
 ///
-/// Based on cmake's implementation.
+/// Based on CMake's implementation.
 /// See: <https://github.com/Kitware/CMake/blob/master/Modules/CheckSymbolExists.cmake>
 pub fn check_symbol_exists<H>(ctx: &Context, headers: H, symbol: &str) -> bool
 where
@@ -84,6 +84,7 @@ int main(int argc, char** argv) {{
 
 /// Checks whether a given header is available during compilation.
 ///
+/// Based on CMake's implementation.
 /// See: <https://github.com/Kitware/CMake/blob/master/Modules/CheckIncludeFile.cmake>
 pub fn check_include_file(ctx: &Context, name: &str) -> bool {
     let code = format!(
