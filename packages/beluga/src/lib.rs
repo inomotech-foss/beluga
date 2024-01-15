@@ -11,5 +11,5 @@ mod api;
 mod core;
 mod future;
 pub mod io;
+pub mod iot;
 pub mod mqtt;
-pub mod secure_tunnel;
