@@ -1,3 +1,5 @@
+const USE_IO_COMPLETION_PORTS: bool = true;
+
 fn main() {
     let ctx = aws_c_builder::Context::new();
     let mut builder = ctx.builder("aws-c-io");
@@ -7,8 +9,14 @@ fn main() {
     let event_loop_define;
 
     if ctx.is_win32() {
-        builder.source_path("windows/iocp");
-        event_loop_define = "IO_COMPLETION_PORTS";
+        builder.source_path("windows");
+        if USE_IO_COMPLETION_PORTS {
+            builder.source_path("windows/iocp");
+            event_loop_define = "IO_COMPLETION_PORTS";
+        } else {
+            // a less performant implementation based on select() is used
+            event_loop_define = ""
+        }
     } else if ctx.cmake_system_name().is_linux() || ctx.cmake_system_name().is_android() {
         builder.source_path("linux").source_path("posix");
         event_loop_define = "EPOLL";
