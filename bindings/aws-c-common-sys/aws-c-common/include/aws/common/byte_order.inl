@@ -11,8 +11,9 @@
 
 #ifdef _WIN32
 #    include <stdlib.h>
-#elif __MINGW32__
-#    include <winsock2.h>
+#    if __MINGW32__
+#        include <winsock2.h>
+#    endif /* __MINGW32__ */
 #else
 #    include <netinet/in.h>
 #endif /* _MSC_VER */
