@@ -1,0 +1,7 @@
+[files]
+extend-exclude = [
+    # ignore typos in c library source code
+    "bindings/**/*.{c,h,inl}",
+    # ignore typos in the bindgen wrappers
+    "bindings/**/bindings/*",
+]
