@@ -21,7 +21,7 @@ impl FeatureTests {
 #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
 int main() { return 0; }
 #else
-it's not windows desktop
+#error "it's not windows desktop"
 #endif
 "#,
         );

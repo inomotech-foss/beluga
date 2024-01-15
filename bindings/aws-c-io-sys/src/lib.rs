@@ -13,6 +13,8 @@
 
 extern crate aws_c_cal_sys;
 extern crate aws_c_common_sys;
+#[cfg(all(unix, not(target_vendor = "apple")))]
+extern crate s2n_tls_sys;
 
 use aws_c_common_sys::*;
 use libc::*;

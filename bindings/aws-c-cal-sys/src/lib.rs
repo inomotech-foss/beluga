@@ -22,3 +22,14 @@ extern crate windows_sys;
 use aws_c_common_sys::*;
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+#[cfg(test)]
+mod tests {
+    /// Checks whether the necessary windows-sys features have been activated
+    #[cfg(windows)]
+    #[test]
+    fn win32_symbols() {
+        #![allow(unused_imports)]
+        use windows_sys::Win32::Security::Cryptography::BCryptSetProperty;
+    }
+}

@@ -276,7 +276,7 @@ impl<'a> Builder<'a> {
             .unwrap_or_else(|| Cow::Owned(self.lib_dir.join("include")));
         println!(
             "cargo:include={}",
-            include_dir.canonicalize().unwrap().to_str().unwrap()
+            get_absolute_path(&include_dir).to_str().unwrap()
         );
 
         let include_dirs = std::iter::once(include_dir)
@@ -379,4 +379,13 @@ fn is_feature_enabled(name: &str) -> bool {
         name.replace('-', "_").to_ascii_uppercase()
     ))
     .is_some()
+}
+
+fn get_absolute_path(path: &Path) -> Cow<Path> {
+    if path.is_absolute() {
+        Cow::Borrowed(path)
+    } else {
+        let current_dir = std::env::current_dir().expect("get current dir");
+        Cow::Owned(current_dir.join(path))
+    }
 }

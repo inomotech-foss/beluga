@@ -9,6 +9,9 @@ publish.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lib]
+doctest = false
+
 [package.metadata.aws-c-builder]
 enable = true
 
@@ -19,7 +22,10 @@ enable-tracing = ["aws-c-common-sys/enable-tracing"]
 aws-c-common-sys.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys.workspace = true
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 security-framework-sys.workspace = true

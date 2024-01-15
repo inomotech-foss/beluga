@@ -6,7 +6,7 @@ fn main() {
     } else if ctx.is_apple() {
         builder.source_path("darwin");
     } else {
-        builder.source_path("unix");
+        builder.source_path("unix").dependencies(["aws_lc_0_12_1"]);
     }
 
     // TODO: separate bindings for ios because of
