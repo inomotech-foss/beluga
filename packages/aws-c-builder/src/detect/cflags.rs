@@ -7,7 +7,7 @@ pub struct CommonProperties {
     has_stdint: bool,
     has_stdbool: bool,
     has_wgnu: bool,
-    no_gnu_expr: bool,
+    no_gnu_expr: Option<bool>,
     have_sysconf: bool,
     compiler_specific: CompilerSpecific,
 }
@@ -26,7 +26,7 @@ impl CommonProperties {
         let no_gnu_expr = if has_wgnu {
             // some platforms implement htonl family of functions via GNU statement expressions (https://gcc.gnu.org/onlinedocs/gcc/Statement-Exprs.html)
             // which generates -Wgnu-statement-expression warning.
-            super::check_compiles_with_cc(
+            let compiles = super::check_compiles_with_cc(
                 ctx,
                 ctx.cc_build.clone().flag("-Wgnu"),
                 r#"
@@ -38,9 +38,10 @@ int main() {
     return (int)x;
 }
 "#,
-            )
+            );
+            Some(compiles)
         } else {
-            false
+            None
         };
 
         // some platforms (especially when cross-compiling) do not have the sysconf API
@@ -74,7 +75,7 @@ int main() { sysconf(_SC_NPROCESSORS_ONLN); }
                 .flag("-Wgnu")
                 .flag("-Wno-gnu-zero-variadic-macro-arguments");
         }
-        if !self.no_gnu_expr {
+        if matches!(self.no_gnu_expr, Some(false)) {
             build.flag("-Wno-gnu-statement-expression");
         }
         if self.have_sysconf {
