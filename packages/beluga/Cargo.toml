@@ -8,6 +8,10 @@ publish.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 aws-c-auth-sys.workspace = true
 aws-c-cal-sys.workspace = true

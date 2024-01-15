@@ -80,6 +80,7 @@ impl Display for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
 impl From<aws_common_error> for Error {
