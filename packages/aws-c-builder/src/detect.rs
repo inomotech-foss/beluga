@@ -27,14 +27,13 @@ pub fn check_compiles_with_cc(ctx: &Context, build: &mut cc::Build, code: &str) 
     let out_dir = ctx.out_dir.join("comptest");
     std::fs::create_dir_all(&out_dir).expect("create comptest dir");
 
-    let name = {
+    let c_file = {
         // we want at least some way to investigate compilation issues, but it also
         // doesn't need to be as complicated as taking the hash from the source code
         static ID: AtomicU8 = AtomicU8::new(0);
         let id = ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        format!("test_{id:06X}.c")
+        out_dir.join(format!("test_{id:06X}.c"))
     };
-    let c_file = out_dir.join(&name);
 
     std::fs::write(&c_file, code).expect("write c code compilation test code");
     build
@@ -46,7 +45,7 @@ pub fn check_compiles_with_cc(ctx: &Context, build: &mut cc::Build, code: &str) 
         .opt_level(0)
         .out_dir(out_dir)
         .file(c_file)
-        .try_compile(&name)
+        .try_compile_intermediates()
         .is_ok()
 }
 

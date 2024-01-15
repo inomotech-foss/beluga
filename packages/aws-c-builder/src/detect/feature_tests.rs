@@ -60,7 +60,11 @@ int main() {
         );
         let have_linux_if_link_h = super::check_include_file(ctx, "linux/if_link.h");
         let have_msvc_intrinsics_x64 = if ctx.compiler.is_like_msvc() {
-            super::check_compiles(
+            // we need this extra check compared to the CMake version because our
+            // 'check_compiles' doesn't currently create an executable, which means we don't
+            // get linker errors.
+            let has_symbol = super::check_symbol_exists(ctx, ["intrin.h"], "_umul128");
+            let compiles = super::check_compiles(
                 ctx,
                 r#"
 #include <intrin.h>
@@ -72,7 +76,9 @@ int main() {
     return 0;
 }
     "#,
-            )
+            );
+
+            has_symbol && compiles
         } else {
             false
         };
