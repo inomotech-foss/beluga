@@ -2,7 +2,7 @@ name: Bindings
 
 on:
   push:
-    branches: [main, dev/ci]
+    branches: [main]
   pull_request:
     branches: [main]
 
