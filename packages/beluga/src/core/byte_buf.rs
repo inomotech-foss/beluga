@@ -4,8 +4,7 @@ use core::mem::MaybeUninit;
 
 use aws_c_common_sys::{aws_byte_buf, aws_byte_buf_clean_up, aws_byte_buf_init, aws_byte_cursor};
 
-use crate::allocator::AllocatorRef;
-use crate::{Error, Result};
+use crate::{AllocatorRef, Error, Result};
 
 #[repr(transparent)]
 pub struct ByteCursor<'a> {

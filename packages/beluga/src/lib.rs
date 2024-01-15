@@ -2,19 +2,14 @@
 
 extern crate alloc;
 
-pub use self::allocator::{Allocator, AllocatorRef};
 pub use self::api::ApiHandle;
-pub use self::error::{Error, Result};
-pub use self::types::*;
+pub use self::core::*;
 
 #[macro_use]
 mod macros;
-mod allocator;
 mod api;
-mod error;
+mod core;
 mod future;
 pub mod io;
-mod logging;
 pub mod mqtt;
 pub mod secure_tunnel;
-mod types;
