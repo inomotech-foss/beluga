@@ -17,12 +17,6 @@
 
 AWS_EXTERN_C_BEGIN
 
-
-#if __MINGW32__
-/* defined in winsock2.h, but we don't want to include it */
-unsigned long htonl(unsigned long hostlong);
-#endif /* __MINGW32__ */
-
 /**
  * Returns 1 if machine is big endian, 0 if little endian.
  * If you compile with even -O1 optimization, this check is completely optimized
@@ -50,7 +44,7 @@ AWS_STATIC_IMPL uint64_t aws_hton64(uint64_t x) {
 #else
     uint32_t low = x & UINT32_MAX;
     uint32_t high = (uint32_t)(x >> 32);
-    return ((uint64_t)htonl(low)) << 32 | htonl(high);
+    return ((uint64_t)aws_hton32(low)) << 32 | aws_hton32(high);
 #endif
 }
 
@@ -67,6 +61,14 @@ AWS_STATIC_IMPL uint64_t aws_ntoh64(uint64_t x) {
 AWS_STATIC_IMPL uint32_t aws_hton32(uint32_t x) {
 #ifdef _WIN32
     return aws_is_big_endian() ? x : _byteswap_ulong(x);
+#elif __MINGW32__
+    if aws_is_big_endian() {
+        return x;
+    }
+    return (uint32_t)(((x & 0xff000000U) >> 24) | \
+        ((x & 0x00ff0000U) >>  8) | \
+	    ((x & 0x0000ff00U) <<  8) | \
+	    ((x & 0x000000ffU) << 24));
 #else
     return htonl(x);
 #endif
