@@ -5,3 +5,6 @@ extend-exclude = [
     # ignore typos in the bindgen wrappers
     "bindings/**/bindings/*",
 ]
+
+[default.extend-words]
+mosquitto = "mosquitto"
