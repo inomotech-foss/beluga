@@ -37,13 +37,13 @@ impl Allocator {
     }
 
     #[inline]
-    unsafe fn mem_acquire(&self, size: usize) -> *mut c_void {
+    pub unsafe fn mem_acquire(&self, size: usize) -> *mut c_void {
         let f = self.0.mem_acquire.unwrap_unchecked();
         f(self.as_ptr(), size)
     }
 
     #[inline]
-    unsafe fn mem_release(&self, ptr: *mut c_void) {
+    pub unsafe fn mem_release(&self, ptr: *mut c_void) {
         let f = self.0.mem_release.unwrap_unchecked();
         f(self.as_ptr(), ptr);
     }
@@ -52,7 +52,7 @@ impl Allocator {
     ///
     /// `mem_realloc` is optional and might not be present.
     #[inline]
-    unsafe fn mem_realloc(
+    pub unsafe fn mem_realloc(
         &self,
         old_ptr: *mut c_void,
         old_size: usize,
@@ -66,7 +66,7 @@ impl Allocator {
     ///
     /// `mem_calloc` is optional and might not be present.
     #[inline]
-    unsafe fn mem_calloc(&self, num: usize, size: usize) -> *mut c_void {
+    pub unsafe fn mem_calloc(&self, num: usize, size: usize) -> *mut c_void {
         let f = self.0.mem_calloc.unwrap_unchecked();
         f(self.as_ptr(), num, size)
     }
