@@ -16,6 +16,9 @@
 #[cfg(feature = "enable-tracing")]
 extern crate ittapi_sys;
 
+#[cfg(windows)]
+extern crate windows_sys;
+
 #[cfg(target_vendor = "apple")]
 use core_foundation_sys::base::CFAllocatorRef;
 use libc::*;
