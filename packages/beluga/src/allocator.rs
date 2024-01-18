@@ -1,5 +1,7 @@
+use core::alloc::Layout;
 use core::ffi::c_void;
 use core::fmt::Debug;
+use core::mem::{align_of, size_of};
 
 use aws_c_common_sys::{aws_allocator, aws_default_allocator};
 
@@ -7,7 +9,7 @@ pub type AllocatorRef = &'static Allocator;
 
 impl Default for AllocatorRef {
     fn default() -> Self {
-        Allocator::default()
+        Allocator::rust()
     }
 }
 
@@ -26,7 +28,7 @@ impl Allocator {
 
     #[inline]
     #[must_use]
-    pub fn default() -> AllocatorRef {
+    pub fn aws_default() -> AllocatorRef {
         unsafe { Self::new(aws_default_allocator()) }
     }
 
@@ -37,43 +39,103 @@ impl Allocator {
     }
 
     #[inline]
-    unsafe fn mem_acquire(&self, size: usize) -> *mut c_void {
-        let f = self.0.mem_acquire.unwrap_unchecked();
-        f(self.as_ptr(), size)
-    }
-
-    #[inline]
-    unsafe fn mem_release(&self, ptr: *mut c_void) {
-        let f = self.0.mem_release.unwrap_unchecked();
-        f(self.as_ptr(), ptr);
-    }
-
-    /// # Safety
-    ///
-    /// `mem_realloc` is optional and might not be present.
-    #[inline]
-    unsafe fn mem_realloc(
-        &self,
-        old_ptr: *mut c_void,
-        old_size: usize,
-        new_size: usize,
-    ) -> *mut c_void {
-        let f = self.0.mem_realloc.unwrap_unchecked();
-        f(self.as_ptr(), old_ptr, old_size, new_size)
-    }
-
-    /// # Safety
-    ///
-    /// `mem_calloc` is optional and might not be present.
-    #[inline]
-    unsafe fn mem_calloc(&self, num: usize, size: usize) -> *mut c_void {
-        let f = self.0.mem_calloc.unwrap_unchecked();
-        f(self.as_ptr(), num, size)
+    #[must_use]
+    pub fn rust() -> AllocatorRef {
+        static GLOBAL_ALLOCATOR: Allocator = Allocator(aws_allocator {
+            mem_acquire: Some(mem_acquire),
+            mem_release: Some(mem_release),
+            mem_realloc: Some(mem_realloc),
+            mem_calloc: Some(mem_calloc),
+            impl_: core::ptr::null_mut(),
+        });
+        &GLOBAL_ALLOCATOR
     }
 }
 
 unsafe impl Send for Allocator {}
 unsafe impl Sync for Allocator {}
+
+/// Allocates memory for the given size using the standard memory allocator.
+///
+/// # Arguments
+/// - `size` - size of desired allocation. Assume that size is properly aligned.
+///
+/// # Safety
+///
+/// The caller must ensure the given size is valid. The returned pointer
+/// must be properly deallocated later.
+#[inline]
+unsafe extern "C" fn mem_acquire(_: *mut aws_allocator, size: usize) -> *mut c_void {
+    // Calculates the Layout to allocate for the block, including space for
+    // storing the Layout at the start.
+    let layout =
+        Layout::from_size_align_unchecked(size + size_of::<Layout>(), align_of::<Layout>());
+    // Allocates memory using the provided layout, writes the layout to the
+    // start of the allocated block, and returns a pointer offset past the
+    // written layout for use as the allocated memory region.
+    let ptr = std::alloc::alloc(layout);
+
+    if ptr.is_null() {
+        return core::ptr::null_mut();
+    }
+
+    core::ptr::write(ptr.cast(), layout);
+    ptr.cast::<Layout>().add(1).cast()
+}
+
+#[inline]
+unsafe extern "C" fn mem_release(_: *mut aws_allocator, ptr: *mut c_void) {
+    let layout_ptr = ptr.cast::<Layout>().offset(-1);
+    let layout = core::ptr::read(layout_ptr);
+    std::alloc::dealloc(layout_ptr.cast(), layout);
+}
+
+/// # Safety
+///
+/// `mem_realloc` is optional and might not be present.
+#[inline]
+unsafe extern "C" fn mem_realloc(
+    _: *mut aws_allocator,
+    old_ptr: *mut c_void,
+    _old_size: usize,
+    new_size: usize,
+) -> *mut c_void {
+    // Reads the layout information stored at the start of the old memory
+    // block. Uses this layout to reallocate the block to the new
+    // size. Writes the updated layout to the start of the newly
+    // allocated block. Returns a pointer to the new block, offset
+    // past the layout information.
+    let layout_ptr = old_ptr.cast::<Layout>().offset(-1);
+    let layout = core::ptr::read(layout_ptr);
+    let new_ptr = std::alloc::realloc(layout_ptr.cast(), layout, new_size + size_of::<Layout>());
+
+    // Writes the layout information to the start of the newly allocated
+    // memory. This stores the size and alignment so the memory can
+    // be properly freed later.
+    std::ptr::write(
+        new_ptr.cast(),
+        Layout::from_size_align_unchecked(new_size + size_of::<Layout>(), align_of::<Layout>()),
+    );
+
+    new_ptr.cast::<Layout>().add(1).cast()
+}
+
+/// # Safety
+///
+/// `mem_calloc` is optional and might not be present.
+#[inline]
+unsafe extern "C" fn mem_calloc(_: *mut aws_allocator, num: usize, size: usize) -> *mut c_void {
+    let layout =
+        Layout::from_size_align_unchecked(size * num + size_of::<Layout>(), align_of::<Layout>());
+    let ptr = std::alloc::alloc_zeroed(layout);
+
+    if ptr.is_null() {
+        return core::ptr::null_mut();
+    }
+
+    core::ptr::write(ptr.cast(), layout);
+    ptr.cast::<Layout>().add(1).cast()
+}
 
 impl Debug for Allocator {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

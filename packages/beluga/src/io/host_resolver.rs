@@ -63,7 +63,7 @@ impl<'a> HostResolverBuilder<'a> {
     }
 
     pub fn build(&mut self) -> Result<HostResolver> {
-        let allocator = self.allocator.unwrap_or(Allocator::default());
+        let allocator = self.allocator.unwrap_or(Allocator::rust());
         HostResolver::new_default(allocator, &self.options)
     }
 

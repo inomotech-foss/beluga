@@ -202,13 +202,13 @@ mod tests {
 
     #[test]
     fn drop_empty() {
-        let buf = AwsString::new(Allocator::default()).unwrap();
+        let buf = AwsString::new(Allocator::rust()).unwrap();
         drop(buf);
     }
 
     #[test]
     fn push_str() {
-        let mut buf = AwsString::new(Allocator::default()).unwrap();
+        let mut buf = AwsString::new(Allocator::rust()).unwrap();
         assert_eq!(buf.as_bytes(), []);
 
         buf.try_push_str("hello ").unwrap();
