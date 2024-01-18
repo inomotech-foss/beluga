@@ -16,7 +16,7 @@ ref_counted_wrapper!(pub struct Inner(aws_client_bootstrap) {
 /// ```rust
 /// # use beluga::Allocator;
 /// # use beluga::io::{EventLoopGroup, HostResolver, ClientBootstrap};
-/// let el_group = EventLoopGroup::new_default(Allocator::default(), 1).unwrap();
+/// let el_group = EventLoopGroup::new_default(Allocator::rust(), 1).unwrap();
 /// let host_resolver = HostResolver::builder(&el_group).build().unwrap();
 /// let client_bootstrap = ClientBootstrap::builder(&el_group, &host_resolver)
 ///     .build()
