@@ -117,7 +117,7 @@ impl Default for Builder<'static> {
 
 impl<'a> Builder<'a> {
     pub fn build(&mut self) -> Result<Tunnel> {
-        let allocator = self.allocator.unwrap_or(Allocator::default());
+        let allocator = self.allocator.unwrap_or(Allocator::rust());
         Tunnel::new(allocator, &self.options)
     }
 

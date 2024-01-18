@@ -1,6 +1,6 @@
 use beluga::io::{ClientBootstrap, EventLoopGroup, HostResolver, SocketOptions};
 use beluga::mqtt::{Client, ConnectionOptionsBuilder, Qos};
-use beluga::{Allocator, ApiHandle};
+use beluga::{ApiHandle, Allocator};
 
 fn main() {
     env_logger::builder()
@@ -12,12 +12,12 @@ fn main() {
 async fn _main() {
     let _handle = ApiHandle::get();
 
-    let el_group = EventLoopGroup::new_default(Allocator::default(), 1).unwrap();
+    let el_group = EventLoopGroup::new_default(Allocator::rust(), 1).unwrap();
     let host_resolver = HostResolver::builder(&el_group).build().unwrap();
     let bootstrap = ClientBootstrap::builder(&el_group, &host_resolver)
         .build()
         .unwrap();
-    let client = Client::new(Allocator::default(), &bootstrap).unwrap();
+    let client = Client::new(Allocator::rust(), &bootstrap).unwrap();
     let connection = client.create_connection().unwrap();
 
     let socket_options = SocketOptions::builder().build();

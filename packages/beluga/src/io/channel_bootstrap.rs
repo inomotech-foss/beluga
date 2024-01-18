@@ -73,7 +73,7 @@ impl<'a> ClientBootstrapBuilder<'a> {
     }
 
     pub fn build(&mut self) -> Result<ClientBootstrap> {
-        let allocator = self.allocator.unwrap_or(Allocator::default());
+        let allocator = self.allocator.unwrap_or(Allocator::rust());
         ClientBootstrap::new(allocator, &self.options)
     }
 

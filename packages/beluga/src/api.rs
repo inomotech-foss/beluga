@@ -14,7 +14,7 @@ pub struct ApiHandle {
 impl ApiHandle {
     pub fn get() -> &'static Self {
         static INIT: std::sync::OnceLock<ApiHandle> = std::sync::OnceLock::new();
-        INIT.get_or_init(|| unsafe { Self::new_unchecked_racy(Allocator::default()) })
+        INIT.get_or_init(|| unsafe { Self::new_unchecked_racy(Allocator::rust()) })
     }
 
     /// # Safety
