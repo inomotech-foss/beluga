@@ -661,9 +661,9 @@ dependencies = [
 
 [[package]]
 name = "s2n-tls-sys"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc0a58c20d508ae59b1c5bd56b88e334960edc899608e52adb2cb83b4c3bfb32"
+checksum = "e55fef3387bdc0dcce08daedd4a2c5f6ae83613f3c9bf6238f338bbb305bab79"
 dependencies = [
  "aws-lc-sys",
  "cc 1.0.83",
