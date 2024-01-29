@@ -1,0 +1,21 @@
+[package]
+name = "aws-c-s3-sys"
+version = "0.1.0+v0.4.5"
+links = "aws-c-s3"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aws-c-auth-sys.workspace = true
+aws-c-common-sys.workspace = true
+aws-c-http-sys.workspace = true
+aws-c-io-sys.workspace = true
+aws-c-sdkutils-sys.workspace = true
+aws-checksums-sys.workspace = true
+
+[build-dependencies]
+aws-c-builder.workspace = true

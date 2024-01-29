@@ -1,0 +1,20 @@
+[package]
+name = "aws-c-auth-sys"
+version = "0.1.0+v0.7.8"
+links = "aws-c-auth"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aws-c-cal-sys.workspace = true
+aws-c-common-sys.workspace = true
+aws-c-http-sys.workspace = true
+aws-c-io-sys.workspace = true
+aws-c-sdkutils-sys.workspace = true
+
+[build-dependencies]
+aws-c-builder.workspace = true
