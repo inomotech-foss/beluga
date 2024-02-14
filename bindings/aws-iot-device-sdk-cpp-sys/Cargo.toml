@@ -1,0 +1,30 @@
+[package]
+name = "aws-iot-device-sdk-cpp-sys"
+version = "0.1.0+v1.31.0"
+links = "aws-iot-device-sdk-cpp-v2"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[package.metadata.aws-c-builder]
+include_patterns = [
+    "devicedefender/",
+    "discovery/",
+    "eventstream_rpc/",
+    "greengrass_ipc/",
+    "identity/",
+    "iotdevicecommon/",
+    "jobs/",
+    "secure_tunneling/",
+    "shadow/",
+]
+
+[dependencies]
+aws-c-iot-sys.workspace = true
+aws-crt-cpp-sys.workspace = true
+
+[build-dependencies]
+aws-c-builder.workspace = true
