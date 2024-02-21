@@ -185,7 +185,7 @@ extern "C"
      */
     bool publish_update_execution(InternalJob *job, QOS qos, const void *callback, UpdateExecutionRequest request);
     void drop_job(InternalJob *job);
-};
+}
 
 /**
  * Callback function called when subscribe operation completes.
