@@ -8,6 +8,7 @@ fn main() {
                 .allowlist_item("(?i)aws_profile.*")
                 .allowlist_item("(?i)aws_resource_name.*")
                 .allowlist_item("(?i)aws_(c_)?sdkutils.*")
+                .allowlist_recursively(true)
         })
         .build();
 }

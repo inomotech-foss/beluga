@@ -25,6 +25,7 @@ fn main() {
                 .opaque_type("Aws::Crt::StringStream")
                 .opaque_type("Aws::Crt::Vector")
                 .opaque_type("Aws::Crt::List")
+                .allowlist_recursively(true)
                 .clang_args(["-x", "c++"])
                 .detect_include_paths(true)
                 .generate_cstr(true)

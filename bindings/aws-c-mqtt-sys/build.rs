@@ -5,6 +5,7 @@ fn main() {
             builder
                 .allowlist_item("(?i)aws_(c_)?mqtt.*")
                 .allowlist_type("on_connection_closed_data")
+                .allowlist_recursively(true)
         })
         .build();
 }

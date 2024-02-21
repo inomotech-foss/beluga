@@ -10,6 +10,7 @@ fn main() {
                 .allowlist_item("(?i)aws_sign.*")
                 .allowlist_type("aws_should_sign_header_fn")
                 .allowlist_type("aws.+credentials.+_fn")
+                .allowlist_recursively(true)
         })
         .build();
 }
