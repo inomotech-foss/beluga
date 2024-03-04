@@ -16,7 +16,7 @@ use super::job_callbacks::{
 };
 use crate::common::SharedPtr;
 use crate::mqtt::InternalMqttClient;
-use crate::{Error, MqttClient, Qos, Result};
+use crate::{Error, JobExecutionSummaryOwned, MqttClient, Qos, Result};
 
 #[repr(C)]
 pub(crate) struct InternalJob {
@@ -116,6 +116,36 @@ impl Drop for Job {
 }
 
 impl Job {
+    pub async fn new_with_summary(
+        mqtt_client: Arc<MqttClient>,
+        thing_name: &str,
+        status: JobStatus,
+        summary: JobExecutionSummaryOwned,
+    ) -> Result<Self> {
+        let JobExecutionSummaryOwned {
+            job_id: Some(job_id),
+            execution_number: Some(execution_number),
+            ..
+        } = summary
+        else {
+            error!(?summary, "summary misses the critical info for a job");
+            return Err(Error::JobCreate);
+        };
+
+        Job::new(
+            mqtt_client,
+            Qos::AtLeastOnce,
+            Description {
+                thing_name: thing_name.to_owned(),
+                job_id,
+                execution_number,
+                status,
+                document: None,
+            },
+        )
+        .await
+    }
+
     pub async fn new(
         mqtt_client: Arc<MqttClient>,
         qos: Qos,
@@ -196,12 +226,13 @@ impl Job {
 
     /// Describes the execution of the job by publishing a request and waiting
     /// on the response.
-    /// 
+    ///
     /// # Arguments
     /// - `qos` - quality of services for an execution, [`Qos`]
-    /// 
+    ///
     /// # Returns
-    /// The job execution description if successful, or an error if rejected or failed.
+    /// The job execution description if successful, or an error if rejected or
+    /// failed.
     pub async fn describe_execution(&mut self, qos: Qos) -> Result<JobDescription> {
         let (tx, rx) = oneshot::channel::<()>();
         let job_id = CString::new(self.id().to_owned())?;
@@ -240,20 +271,25 @@ impl Job {
     /// Updates the job execution status and description. Publishes an update
     /// request and waits for the response.
     /// Increments the execution number after a successful update.
-    /// 
+    ///
     /// # Arguments
-    /// 
-    /// - `qos` - Specifies the Quality of Service level to use for the request. [`Qos`]
-    /// - `expected_version` - The expected current version of the job execution.
+    ///
+    /// - `qos` - Specifies the Quality of Service level to use for the request.
+    ///   [`Qos`]
+    /// - `expected_version` - The expected current version of the job
+    ///   execution.
     /// Each time you update the job execution, its version is incremented.
-    /// If the version of the job execution stored in the AWS IoT Jobs service does not match,
-    /// the update is rejected with a VersionMismatch error,
-    /// and an ErrorResponse that contains the current job execution status data is returned.
-    /// - `status` - The new status for the job execution (IN_PROGRESS, FAILED, SUCCEEDED, or REJECTED).
+    /// If the version of the job execution stored in the AWS IoT Jobs service
+    /// does not match, the update is rejected with a VersionMismatch error,
+    /// and an ErrorResponse that contains the current job execution status data
+    /// is returned.
+    /// - `status` - The new status for the job execution (IN_PROGRESS, FAILED,
+    ///   SUCCEEDED, or REJECTED).
     /// This must be specified on every update. [`JobStatus`]
-    /// 
+    ///
     /// # Returns
-    /// The updated job description if successful, or an error if rejected or failed.
+    /// The updated job description if successful, or an error if rejected or
+    /// failed.
     pub async fn update(
         &mut self,
         qos: Qos,
