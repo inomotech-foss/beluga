@@ -9,6 +9,7 @@ fn main() {
                 .opaque_type("aws_hash_table")
                 .opaque_type("aws_log_formatter_vtable")
                 .opaque_type("aws_thread_once")
+                .allowlist_recursively(true)
         })
         .build();
 }

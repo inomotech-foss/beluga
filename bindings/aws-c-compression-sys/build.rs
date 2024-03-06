@@ -5,6 +5,7 @@ fn main() {
             builder
                 .allowlist_item("(?i)aws_(c_)?compression.*")
                 .allowlist_item("(?i)aws_huffman.*")
+                .allowlist_recursively(true)
         })
         .build();
 }

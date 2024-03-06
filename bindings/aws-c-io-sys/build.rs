@@ -38,6 +38,7 @@ fn main() {
                 .allowlist_type("aws_new_event_loop_fn")
                 .allowlist_type("aws_standard_retry_options")
                 .allowlist_type("aws.+host.+_fn")
+                .allowlist_recursively(true)
         })
         .build();
 }

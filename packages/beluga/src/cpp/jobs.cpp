@@ -219,7 +219,7 @@ jobs::OnSubscribeToGetPendingJobExecutionsAcceptedResponse get_pending_job_execu
         {
             for (uint32_t i = 0; i < queued_size; ++i)
             {
-                const auto summary = response->QueuedJobs->at(i);
+                const auto & summary = response->QueuedJobs->at(i);
                 queued_jobs[i] = JobExecutionSummary(summary.JobId ? summary.JobId->c_str() : nullptr,
                                                      summary.VersionNumber ? &*summary.VersionNumber : nullptr,
                                                      summary.ExecutionNumber ? &*summary.ExecutionNumber : nullptr,
@@ -233,7 +233,7 @@ jobs::OnSubscribeToGetPendingJobExecutionsAcceptedResponse get_pending_job_execu
         {
             for (uint32_t i = 0; i < progress_size; ++i)
             {
-                const auto summary = response->InProgressJobs->at(i);
+                const auto & summary = response->InProgressJobs->at(i);
                 progress_jobs[i] = JobExecutionSummary(summary.JobId ? summary.JobId->c_str() : nullptr,
                                                        summary.VersionNumber ? &*summary.VersionNumber : nullptr,
                                                        summary.ExecutionNumber ? &*summary.ExecutionNumber : nullptr,

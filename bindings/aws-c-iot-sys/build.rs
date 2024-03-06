@@ -5,6 +5,7 @@ fn main() {
             builder
                 .allowlist_item("(?i)aws_(c_)?iotdevice.*")
                 .allowlist_item("(?i)aws_secure_tunnel.*")
+                .allowlist_recursively(true)
         })
         .build();
 }

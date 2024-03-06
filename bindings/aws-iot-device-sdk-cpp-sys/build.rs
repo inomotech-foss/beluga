@@ -20,6 +20,7 @@ fn main() {
                 .rustified_enum("Aws::Iotjobs::JobStatus")
                 .allowlist_type("Aws::Iotjobs::RejectedErrorCode")
                 .rustified_enum("Aws::Iotjobs::RejectedErrorCode")
+                .allowlist_recursively(true)
                 .clang_args(["-x", "c++"])
                 .detect_include_paths(true)
                 .enable_cxx_namespaces()
