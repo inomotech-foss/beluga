@@ -65,14 +65,14 @@ JobExecutionSummary::JobExecutionSummary(
 {
 }
 
-JobsSummary::JobsSummary() : queued_jobs(nullptr), progres_jobs(nullptr),
+JobsSummary::JobsSummary() : queued_jobs(nullptr), progress_jobs(nullptr),
                              queued_size(0), progres_size(0)
 {
 }
 
 JobsSummary::JobsSummary(
-    JobExecutionSummary *queued_jobs, JobExecutionSummary *progres_jobs,
-    size_t queued_size, size_t progres_size) : queued_jobs(queued_jobs), progres_jobs(progres_jobs),
+    JobExecutionSummary *queued_jobs, JobExecutionSummary *progress_jobs,
+    size_t queued_size, size_t progres_size) : queued_jobs(queued_jobs), progress_jobs(progress_jobs),
                                                queued_size(queued_size), progres_size(progres_size)
 {
 }

@@ -145,7 +145,7 @@ impl From<&JobExecutionSummary> for JobExecutionSummaryOwned {
 #[repr(C)]
 pub(super) struct JobsSummary {
     pub(super) queued_jobs: *const JobExecutionSummary,
-    pub(super) progres_jobs: *const JobExecutionSummary,
+    pub(super) progress_jobs: *const JobExecutionSummary,
     pub(super) queued_size: usize,
     pub(super) progres_size: usize,
 }
@@ -153,14 +153,14 @@ pub(super) struct JobsSummary {
 #[derive(Debug, Clone)]
 pub struct JobsSummaryOwned {
     pub queued_jobs: Vec<JobExecutionSummaryOwned>,
-    pub progres_jobs: Vec<JobExecutionSummaryOwned>,
+    pub progress_jobs: Vec<JobExecutionSummaryOwned>,
 }
 
 impl From<JobsSummary> for JobsSummaryOwned {
     fn from(
         JobsSummary {
             queued_jobs,
-            progres_jobs,
+            progress_jobs,
             queued_size,
             progres_size,
         }: JobsSummary,
@@ -170,14 +170,14 @@ impl From<JobsSummary> for JobsSummaryOwned {
             .map(JobExecutionSummaryOwned::from)
             .collect_vec();
 
-        let progres_jobs = unsafe { std::slice::from_raw_parts(progres_jobs, progres_size) }
+        let progress_jobs = unsafe { std::slice::from_raw_parts(progress_jobs, progres_size) }
             .iter()
             .map(JobExecutionSummaryOwned::from)
             .collect_vec();
 
         Self {
             queued_jobs,
-            progres_jobs,
+            progress_jobs,
         }
     }
 }
