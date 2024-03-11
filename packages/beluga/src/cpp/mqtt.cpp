@@ -121,7 +121,7 @@ extern "C" uint16_t subscribe(InternalMqttClient *client, const char *topic, QOS
         topic, qos,
         [=](MqttConnection &, const AwsString &topic, const ByteBuf &payload, bool dup, QOS qos, bool retain)
         {
-            on_message(client->get_interface(), topic.c_str(), std::move(Buffer(payload)), dup, qos, retain);
+            on_message(client->get_interface(), topic.c_str(), Buffer(payload), dup, qos, retain);
         },
         [=](MqttConnection &, uint16_t packet_id, const AwsString &topic, QOS qos, int error_code)
         {

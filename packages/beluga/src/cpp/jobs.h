@@ -91,7 +91,7 @@ extern "C"
         explicit JobsSummary();
         explicit JobsSummary(JobExecutionSummary *, JobExecutionSummary *, size_t, size_t);
         JobExecutionSummary *queued_jobs;
-        JobExecutionSummary *progres_jobs;
+        JobExecutionSummary *progress_jobs;
         size_t queued_size;
         size_t progres_size;
     };

@@ -42,7 +42,7 @@ extern "C" bool destroy_buffer(Buffer *buffer);
 
 Buffer Buffer::create(size_t size)
 {
-    return std::move(create_buffer(size));
+    return create_buffer(size);
 }
 
 bool Buffer::is_empty() const

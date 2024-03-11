@@ -10,7 +10,7 @@ using AwsString = Aws::Crt::String;
 
 extern "C"
 {
-    struct Buffer final
+    struct Buffer
     {
         uint8_t *data;
         size_t len;

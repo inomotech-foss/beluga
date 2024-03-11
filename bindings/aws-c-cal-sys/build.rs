@@ -35,7 +35,7 @@ fn main() {
 fn create_crypto_package_config(target_dir: &Path) -> anyhow::Result<()> {
     use std::fmt::Write;
 
-    let aws_lc_root = std::env::var("DEP_AWS_LC_0_13_2_ROOT")?;
+    let aws_lc_root = std::env::var("DEP_AWS_LC_0_13_3_ROOT")?;
 
     let mut content = String::new();
     writeln!(&mut content, "if (NOT TARGET AWS::crypto)")?;
