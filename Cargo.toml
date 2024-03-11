@@ -33,7 +33,7 @@ aws-crt-cpp-sys = { path = "bindings/aws-crt-cpp-sys" }
 aws-iot-device-sdk-sys = { path = "bindings/aws-iot-device-sdk-cpp-sys", package = "aws-iot-device-sdk-cpp-sys" }
 
 anyhow = "1"
-aws-lc-sys = "0.13"
+aws-lc-sys = { version = "0.13", features = ["bindgen"] }
 bindgen = "0.69"
 cmake = "0.1"
 core-foundation = "0.9"
