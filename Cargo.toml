@@ -1,10 +1,5 @@
-[workspace]
-members = ["bindings/*", "packages/*"]
-resolver = "2"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/workspaces.html
-
-[workspace.package]
+[package]
+name = "simple-mqtt"
 authors = [
     "Silvestr Predko <silvestr1994@gmail.com>",
     "Simon Berger <simon.berger@inomotech.com>",
@@ -15,37 +10,14 @@ rust-version = "1.74"
 repository = "https://github.com/inomotech-foss/beluga"
 publish = false
 
-[workspace.dependencies]
-aws-c-auth-sys = { path = "bindings/aws-c-auth-sys" }
-aws-c-cal-sys = { path = "bindings/aws-c-cal-sys" }
-aws-c-common-sys = { path = "bindings/aws-c-common-sys" }
-aws-c-compression-sys = { path = "bindings/aws-c-compression-sys" }
-aws-c-event-stream-sys = { path = "bindings/aws-c-event-stream-sys" }
-aws-c-http-sys = { path = "bindings/aws-c-http-sys" }
-aws-c-io-sys = { path = "bindings/aws-c-io-sys" }
-aws-c-iot-sys = { path = "bindings/aws-c-iot-sys" }
-aws-c-mqtt-sys = { path = "bindings/aws-c-mqtt-sys" }
-aws-c-s3-sys = { path = "bindings/aws-c-s3-sys" }
-aws-c-sdkutils-sys = { path = "bindings/aws-c-sdkutils-sys" }
-aws-checksums-sys = { path = "bindings/aws-checksums-sys" }
-
-aws-c-builder = { path = "packages/aws-c-builder" }
-beluga = { path = "packages/beluga" }
-beluga-glue = { path = "packages/beluga-glue" }
-
-aws-lc-sys = "0.12"
-bindgen = "0.69"
-# SEE: https://github.com/rust-lang/cc-rs/pull/914
-# SEE: https://github.com/rust-lang/cc-rs/issues/916
-cc = { git = "https://github.com/inomotech-foss/cc-rs", branch = "future", features = [
-    "parallel",
-] }
-core-foundation-sys = "0.8"
-env_logger = "0.10"
-futures = "0.3"
-ittapi-sys = "0.4"
-libc = "0.2"
-log = "0.4"
-s2n-tls-sys = "0.1.0"
-security-framework-sys = "2"
-windows-sys = "0.52"
+[dependencies]
+anyhow = "1"
+enumn = "0.1"
+rumqttc = "0.24"
+http = "1"
+bytes = "1.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3.30"
