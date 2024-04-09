@@ -1,18 +1,15 @@
-use anyhow::{bail, Context};
 use bytes::{Buf, BufMut};
 use core::net::SocketAddrV4;
-use enumn::N;
-use futures_util::{future, pin_mut, SinkExt, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, StreamExt};
 use http::Request;
 use prost::Message as _;
 use rumqttc::{AsyncClient, MqttOptions, Packet, QoS, TlsConfiguration, Transport};
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::{mpsc, Mutex},
-    task::JoinHandle,
 };
 use tokio_tungstenite::tungstenite::{handshake::client::generate_key, Message};
 
@@ -39,10 +36,10 @@ struct Notify {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let thing_name = env!("THING_NAME");
-    let broker_url = env!("BROKER_URL");
+    let thing_name = std::env::var("THING_NAME").unwrap();
+    let broker_url = std::env::var("BROKER_URL").unwrap();
 
-    let mut mqttoptions = MqttOptions::new(thing_name, broker_url, 8883);
+    let mut mqttoptions = MqttOptions::new(&thing_name, broker_url, 8883);
     mqttoptions.set_keep_alive(std::time::Duration::from_secs(5));
 
     let ca = include_bytes!("../AmazonRootCA1.pem");
@@ -76,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
                         client_access_token,
                         client_mode,
                         region,
-                        services,
+                        services: _,
                     } = serde_json::from_slice::<Notify>(&p.payload).unwrap();
 
                     let req = Request::builder()
@@ -125,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
                                         if let Ok(messages) = process_received_data(&mut bytes) {
                                             for msg in messages {
                                                 println!("WS RX: {msg:?}");
-                                                match msg.r#type() {
+                                                match msg.msg_type() {
                                                     proto::Type::Data => {
                                                         let data = msg.payload;
                                                         tx_in.send(data.to_vec()).await.unwrap();
@@ -188,7 +185,7 @@ async fn ssh(
                 let buf = &buf[..n];
                 println!("SSH RX {buf:?}");
                 let msg = proto::Message {
-                    r#type: proto::Type::Data as _,
+                    msg_type: proto::Type::Data as _,
                     ignorable: false,
                     payload: buf.to_owned(),
                     ..(base_message.clone())
