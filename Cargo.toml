@@ -12,12 +12,13 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-enumn = "0.1"
-rumqttc = "0.24"
-http = "1"
 bytes = "1.6"
+enumn = "0.1"
+futures-util = "0.3.30"
+http = "1"
+prost = "0.12.4"
+rumqttc = "0.24"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
-futures-util = "0.3.30"
