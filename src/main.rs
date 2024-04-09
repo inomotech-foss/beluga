@@ -1,10 +1,10 @@
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut};
-use prost::Message as _;
 use core::net::SocketAddrV4;
 use enumn::N;
 use futures_util::{future, pin_mut, SinkExt, StreamExt, TryStreamExt};
 use http::Request;
+use prost::Message as _;
 use rumqttc::{AsyncClient, MqttOptions, Packet, QoS, TlsConfiguration, Transport};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
@@ -39,7 +39,10 @@ struct Notify {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut mqttoptions = MqttOptions::new("thing-name", "endpoint", 8883);
+    let thing_name = env!("THING_NAME");
+    let broker_url = env!("BROKER_URL");
+
+    let mut mqttoptions = MqttOptions::new(thing_name, broker_url, 8883);
     mqttoptions.set_keep_alive(std::time::Duration::from_secs(5));
 
     let ca = include_bytes!("../AmazonRootCA1.pem");
@@ -57,7 +60,10 @@ async fn main() -> anyhow::Result<()> {
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
     client
-        .subscribe("$aws/things/thing-name/tunnels/notify", QoS::AtLeastOnce)
+        .subscribe(
+            format!("$aws/things/{thing_name}/tunnels/notify"),
+            QoS::AtLeastOnce,
+        )
         .await?;
 
     loop {
@@ -118,15 +124,19 @@ async fn main() -> anyhow::Result<()> {
                                         let mut bytes = bytes::Bytes::from_iter(msg.into_data());
                                         if let Ok(messages) = process_received_data(&mut bytes) {
                                             for msg in messages {
-                                                println!("Message: {:?}", msg);
+                                                println!("WS RX: {msg:?}");
                                                 match msg.r#type() {
                                                     proto::Type::Data => {
                                                         let data = msg.payload;
                                                         tx_in.send(data.to_vec()).await.unwrap();
                                                     }
                                                     proto::Type::StreamStart => {
-                                                        println!("Stream start");
-                                                        ssh(tx_out.clone(), rx_in.clone()).await;
+                                                        println!("Stream start: {}", msg.stream_id);
+                                                        ssh(
+                                                            msg,
+                                                            tx_out.clone(),
+                                                            rx_in.clone(),
+                                                        ).await;
                                                     }
                                                     _ => {}
                                                 }
@@ -153,7 +163,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn ssh(tx: Arc<Mutex<mpsc::Sender<Vec<u8>>>>, rx: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>) {
+async fn ssh(
+    mut base_message: proto::Message,
+    tx: Arc<Mutex<mpsc::Sender<Vec<u8>>>>,
+    rx: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
+) {
+    base_message.payload = Vec::new();
+
     tokio::spawn(async move {
         let stream =
             TcpStream::connect::<SocketAddrV4>(SocketAddrV4::new([127, 0, 0, 1].into(), 22))
@@ -161,41 +177,41 @@ async fn ssh(tx: Arc<Mutex<mpsc::Sender<Vec<u8>>>>, rx: Arc<Mutex<mpsc::Receiver
                 .unwrap();
 
         let (mut reader, mut writer) = stream.into_split();
-        let mut buff = [0; 1024];
 
-        loop {
-            // let data = rx.recv().await.unwrap();
-            // println!("Write packet {:?}", &data);
-            // writer.write_all(&data).await.unwrap();
+        let read_fut = async move {
+            let mut buf = [0; 1024];
+            loop {
+                let n = reader.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                let buf = &buf[..n];
+                println!("SSH RX {buf:?}");
+                let msg = proto::Message {
+                    r#type: proto::Type::Data as _,
+                    ignorable: false,
+                    payload: buf.to_owned(),
+                    ..(base_message.clone())
+                };
+                println!("WS TX: {msg:?}");
 
-            let size = reader.read(&mut buff).await.unwrap();
-
-            if size == 0 {
-                continue;
+                let mut buf = bytes::BytesMut::new();
+                serialize_messages(&mut buf, &[&msg]).unwrap();
+                tx.lock().await.send(buf.to_vec()).await.unwrap();
             }
+        };
 
-            println!("Read SSH packet {:?}", &buff[..size]);
-            let msg = proto::Message {
-                r#type: proto::Type::Data as _,
-                stream_id: 5,
-                ignorable: false,
-                payload: buff[..size].to_owned(),
-                service_id: "SSH".to_owned(),
-                available_service_ids: Vec::new(),
-                connection_id: 0,
-            };
+        let write_fut = async move {
+            loop {
+                let data = rx.lock().await.recv().await.unwrap();
+                println!("SSH TX {data:?}");
+                writer.write_all(&data).await.unwrap();
+            }
+        };
 
-            let mut buf = bytes::BytesMut::new();
-            serialize_messages(&mut buf, &[&msg]).unwrap();
-            tx.lock().await.send(buf.to_vec()).await.unwrap();
-
-            let data = rx.lock().await.recv().await.unwrap();
-            println!("Write packet {:?}", &data);
-            writer.write_all(&data).await.unwrap();
-        }
+        tokio::join!(read_fut, write_fut);
     });
 }
-
 
 fn process_received_data(data: &mut bytes::Bytes) -> anyhow::Result<Vec<proto::Message>> {
     let mut messages = Vec::new();
@@ -208,7 +224,10 @@ fn process_received_data(data: &mut bytes::Bytes) -> anyhow::Result<Vec<proto::M
     Ok(messages)
 }
 
-fn serialize_messages(buf: &mut bytes::BytesMut, messages: &[&proto::Message]) -> anyhow::Result<()> {
+fn serialize_messages(
+    buf: &mut bytes::BytesMut,
+    messages: &[&proto::Message],
+) -> anyhow::Result<()> {
     for msg in messages {
         let len = msg.encoded_len().try_into()?;
         buf.put_u16(len);
