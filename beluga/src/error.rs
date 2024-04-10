@@ -1,4 +1,5 @@
 use rumqttc::ClientError;
+use tokio::sync::broadcast::error::RecvError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -13,5 +14,7 @@ pub enum Error {
     #[error("")]
     Ca,
     #[error(transparent)]
-    Mqtt(#[from] ClientError)
+    Mqtt(#[from] ClientError),
+    #[error(transparent)]
+    Receive(#[from] RecvError),
 }

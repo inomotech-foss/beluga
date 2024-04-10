@@ -1,9 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use rumqttc::{
-    AsyncClient, Event, EventLoop, MqttOptions, NetworkOptions, Outgoing, Packet, Publish, QoS,
-    Transport,
+    AsyncClient, Event, EventLoop, MqttOptions, Packet, Publish, QoS, SubscribeFilter, Transport,
 };
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio::sync::Mutex;
@@ -11,6 +10,31 @@ use tokio::task::JoinHandle;
 use tracing::error;
 
 use crate::{Error, Result};
+
+pub struct Subscriber(Vec<Receiver<Publish>>);
+
+impl Subscriber {
+    pub async fn recv(&mut self) -> Result<Publish> {
+        let (packet, ..) = futures::future::select_all(
+            self.0
+                .iter_mut()
+                .map(|receiver| Box::pin(async move { receiver.recv().await })),
+        )
+        .await;
+        packet.map_err(Error::from)
+    }
+}
+
+impl Clone for Subscriber {
+    fn clone(&self) -> Self {
+        Self(
+            self.0
+                .iter()
+                .map(|receiver| receiver.resubscribe())
+                .collect::<Vec<_>>(),
+        )
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct MqttClientBuilder<'a> {
@@ -96,19 +120,52 @@ pub struct MqttClient {
 }
 
 impl MqttClient {
-    pub async fn subscribe(&self, topic: &str, qos: QoS) -> Result<Receiver<Publish>> {
+    pub async fn subscribe(&self, topic: &str, qos: QoS) -> Result<Subscriber> {
         self.client
             .subscribe(topic, qos)
             .await
             .map_err(Error::from)?;
 
         if let Some(sender) = self.subscribers.lock().await.get(topic) {
-            Ok(sender.subscribe())
+            Ok(Subscriber(vec![sender.subscribe()]))
         } else {
             let (tx, rx) = broadcast::channel::<Publish>(10);
             self.subscribers.lock().await.insert(topic.to_owned(), tx);
-            Ok(rx)
+            Ok(Subscriber(vec![rx]))
         }
+    }
+
+    pub async fn subscribe_many(
+        &self,
+        topics: impl Iterator<Item = &str> + Clone,
+        qos: QoS,
+    ) -> Result<Subscriber> {
+        self.client
+            .subscribe_many(
+                topics
+                    .clone()
+                    .map(|topic| SubscribeFilter::new(topic.to_owned(), qos)),
+            )
+            .await
+            .map_err(Error::from)?;
+
+        let topics_set = HashSet::<&str>::from_iter(topics);
+
+        let receivers = self
+            .subscribers
+            .lock()
+            .await
+            .iter()
+            .filter_map(|(topic, sender)| {
+                if topics_set.contains(topic.as_str()) {
+                    Some(sender.subscribe())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Ok(Subscriber(receivers))
     }
 
     pub async fn publish(
@@ -132,19 +189,14 @@ async fn poll(
     loop {
         match event_loop.poll().await {
             Ok(event) => {
-                if let Event::Incoming(packet) = event {
-                    match packet {
-                        Packet::Publish(packet) => {
-                            let mut subs = subscribers.lock().await;
-                            let topic = packet.topic.clone();
-                            if let Some(subscriber) = subs.get(&topic) {
-                                if let Err(err) = subscriber.send(packet) {
-                                    subs.remove(&topic);
-                                    error!(error = %err, topic = %topic, "couldn't provide packet for a subscriber")
-                                }
-                            }
+                if let Event::Incoming(Packet::Publish(packet)) = event {
+                    let mut subs = subscribers.lock().await;
+                    let topic = packet.topic.clone();
+                    if let Some(subscriber) = subs.get(&topic) {
+                        if let Err(err) = subscriber.send(packet) {
+                            subs.remove(&topic);
+                            error!(error = %err, topic = %topic, "couldn't provide packet for a subscriber")
                         }
-                        _ => {}
                     }
                 }
             }
