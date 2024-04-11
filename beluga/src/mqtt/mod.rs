@@ -7,7 +7,7 @@ use rumqttc::{
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{Error, Result};
 
@@ -106,8 +106,8 @@ impl<'a> MqttClientBuilder<'a> {
 
         Ok(MqttClient {
             client,
-            worker: Arc::new(Mutex::new(worker)),
             subscribers,
+            _worker: Arc::new(Mutex::new(worker)),
         })
     }
 }
@@ -115,7 +115,7 @@ impl<'a> MqttClientBuilder<'a> {
 #[derive(Debug, Clone)]
 pub struct MqttClient {
     client: AsyncClient,
-    worker: Arc<Mutex<JoinHandle<()>>>,
+    _worker: Arc<Mutex<JoinHandle<()>>>,
     subscribers: Arc<Mutex<HashMap<String, Sender<Publish>>>>,
 }
 
@@ -190,6 +190,7 @@ async fn poll(
         match event_loop.poll().await {
             Ok(event) => {
                 if let Event::Incoming(Packet::Publish(packet)) = event {
+                    info!("Something {packet:?}");
                     let mut subs = subscribers.lock().await;
                     let topic = packet.topic.clone();
                     if let Some(subscriber) = subs.get(&topic) {
@@ -201,7 +202,7 @@ async fn poll(
                 }
             }
             Err(conn_err) => {
-                // conn_err
+                error!(error = %conn_err, "connection error during polling in event loop");
             }
         }
     }

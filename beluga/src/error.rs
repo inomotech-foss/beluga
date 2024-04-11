@@ -3,15 +3,15 @@ use tokio::sync::broadcast::error::RecvError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("")]
+    #[error("missing endpoint")]
     Endpoint,
-    #[error("")]
+    #[error("missing thing name")]
     ThingName,
-    #[error("")]
+    #[error("missing certificate")]
     Certificate,
-    #[error("")]
+    #[error("missing private key")]
     PrivateKey,
-    #[error("")]
+    #[error("missing authority")]
     Ca,
     #[error(transparent)]
     Mqtt(#[from] ClientError),
