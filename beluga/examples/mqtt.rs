@@ -1,16 +1,25 @@
 use beluga::{MqttClientBuilder, QoS};
-use tracing::info;
+use tracing::{info, Level};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
+    // let client = MqttClientBuilder::new()
+    //     .ca(include_bytes!("../../AmazonRootCA1.pem"))
+    //     .certificate(include_bytes!("../../certificate.pem.crt"))
+    //     .private_key(include_bytes!("../../private.pem.key"))
+    //     .endpoint(include_str!("../../endpoint.in"))
+    //     .thing_name(include_str!("../../thing-name.in"))
+    //     .build()?;
+
+    // for Github actions
     let client = MqttClientBuilder::new()
-        .ca(include_bytes!("../../AmazonRootCA1.pem"))
-        .certificate(include_bytes!("../../certificate.pem.crt"))
-        .private_key(include_bytes!("../../private.pem.key"))
-        .endpoint(include_str!("../../endpoint.in"))
-        .thing_name(include_str!("../../thing-name.in"))
+        .ca(&[])
+        .certificate(&[])
+        .private_key(&[])
+        .endpoint("")
+        .thing_name("")
         .build()?;
 
     let mut msg_sub = client.subscribe("message", QoS::AtLeastOnce).await?;

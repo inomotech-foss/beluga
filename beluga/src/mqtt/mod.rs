@@ -7,7 +7,7 @@ use rumqttc::{
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::error;
 
 use crate::{Error, Result};
 
@@ -126,11 +126,13 @@ impl MqttClient {
             .await
             .map_err(Error::from)?;
 
-        if let Some(sender) = self.subscribers.lock().await.get(topic) {
+        let mut subs = self.subscribers.lock().await;
+
+        if let Some(sender) = subs.get(topic) {
             Ok(Subscriber(vec![sender.subscribe()]))
         } else {
             let (tx, rx) = broadcast::channel::<Publish>(10);
-            self.subscribers.lock().await.insert(topic.to_owned(), tx);
+            subs.insert(topic.to_owned(), tx);
             Ok(Subscriber(vec![rx]))
         }
     }
@@ -190,7 +192,6 @@ async fn poll(
         match event_loop.poll().await {
             Ok(event) => {
                 if let Event::Incoming(Packet::Publish(packet)) = event {
-                    info!("Something {packet:?}");
                     let mut subs = subscribers.lock().await;
                     let topic = packet.topic.clone();
                     if let Some(subscriber) = subs.get(&topic) {
