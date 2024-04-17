@@ -1,5 +1,5 @@
 [workspace]
-members = ["beluga-mqtt", "beluga-tunnel"]
+members = ["beluga-*"]
 resolver = "2"
 
 [workspace.package]

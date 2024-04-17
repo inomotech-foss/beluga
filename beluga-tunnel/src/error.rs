@@ -21,8 +21,6 @@ pub enum Error {
     #[error(transparent)]
     Service(#[from] std::io::Error),
     #[error(transparent)]
-    Mqtt(#[from] beluga_mqtt::Error),
-    #[error(transparent)]
     DecodeProto(#[from] prost::DecodeError),
     #[error(transparent)]
     EncodeProto(#[from] prost::EncodeError),
