@@ -5,6 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 
+#[derive(Debug, Default)]
 pub struct SshService {
     handle: Option<JoinHandle<Result<()>>>,
 }

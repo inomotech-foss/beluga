@@ -14,9 +14,11 @@ repository = "https://github.com/inomotech-foss/beluga"
 publish = false
 
 [workspace.dependencies]
-rumqttc = "0.24"
-bytes = "1"
 beluga-mqtt = { path = "beluga-mqtt" }
+beluga-ssh-service = { path = "beluga-ssh-service" }
+beluga-tunnel = { path = "beluga-tunnel" }
+bytes = "1"
+rumqttc = "0.24"
 enumn = "0.1"
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }

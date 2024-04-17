@@ -62,11 +62,11 @@ impl Tunnel {
         Ok(Tunnel { web_socket })
     }
 
-    pub async fn start<S>(Tunnel { web_socket }: Self, mut service: S) -> Result<()>
+    pub async fn start<S>(self, mut service: S) -> Result<()>
     where
         S: Service,
     {
-        let (mut write, mut read) = web_socket.split();
+        let (mut write, mut read) = self.web_socket.split();
         let (tx_out, websocket_out) = mpsc::channel::<bytes::Bytes>(10);
         let (websocket_in, mut rx_in) = mpsc::channel::<bytes::Bytes>(10);
 

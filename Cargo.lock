@@ -51,6 +51,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9475866fec1451be56a3c2400fd081ff546538961565ccb5b7142cbd22bc7a51"
 
 [[package]]
+name = "beluga-aws-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beluga-mqtt",
+ "beluga-ssh-service",
+ "beluga-tunnel",
+ "bytes",
+ "futures",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "beluga-mqtt"
 version = "0.1.0"
 dependencies = [
