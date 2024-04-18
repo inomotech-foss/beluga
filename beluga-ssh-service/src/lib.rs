@@ -3,18 +3,17 @@ use core::net::SocketAddrV4;
 use beluga_tunnel::{Error, Result, Service};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::task::JoinHandle;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug, Default)]
-pub struct SshService {
-    handle: Option<JoinHandle<Result<()>>>,
-}
+pub struct SshService;
 
 impl Service for SshService {
     async fn connect(
         &mut self,
-        websocket_in: tokio::sync::mpsc::Sender<bytes::Bytes>,
-        mut websocket_out: tokio::sync::mpsc::Receiver<bytes::Bytes>,
+        websocket_in: Sender<bytes::Bytes>,
+        mut websocket_out: Receiver<bytes::Bytes>,
+        close_service: Sender<()>,
     ) -> Result<()> {
         let mut stream =
             TcpStream::connect::<SocketAddrV4>(SocketAddrV4::new([127, 0, 0, 1].into(), 22))
@@ -54,19 +53,10 @@ impl Service for SshService {
             }
         });
 
-        self.handle = Some(handle);
-
-        Ok(())
-    }
-
-    async fn handle(&mut self) -> Result<()> {
-        if let Some(handle) = self.handle.take() {
-            handle.await.map_err(|err| {
-                Error::Service(std::io::Error::other(format!(
-                    "service handle error: \"{err}\""
-                )))
-            })??;
-        }
+        tokio::spawn(async move {
+            let _ = handle.await;
+            let _ = close_service.send(()).await;
+        });
 
         Ok(())
     }
