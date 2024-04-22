@@ -23,7 +23,11 @@ async fn main() -> anyhow::Result<()> {
         .thing_name("")
         .build()?;
 
-    let _manager = TunnelManager::new(client.clone(), include_str!("../../thing-name.in")).await?;
+    // let _manager = TunnelManager::new(client.clone(),
+    // include_str!("../../thing-name.in")).await?;
+
+    // for Github actions
+    let _manager = TunnelManager::new(client.clone(), "thing").await?;
 
     tokio::signal::ctrl_c().await?;
     Ok(())
