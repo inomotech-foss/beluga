@@ -213,3 +213,40 @@ fn serialize_message(buf: &mut bytes::BytesMut, message: Msg) -> Result<()> {
     message.encode(buf)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::proto::{Message, Type};
+    use crate::{process_received_data, serialize_message};
+
+    #[test]
+    fn serialize_deserialize_messages() {
+        let mut data = bytes::BytesMut::new();
+        let msg1 = Message {
+            msg_type: Type::ServiceIds.into(),
+            stream_id: 23,
+            ignorable: true,
+            service_id: "SSH".to_owned(),
+            ..Default::default()
+        };
+        let msg2 = Message {
+            msg_type: Type::Data.into(),
+            stream_id: 25,
+            ignorable: false,
+            service_id: "SSH".to_owned(),
+            payload: vec![1, 2],
+            ..Default::default()
+        };
+
+        serialize_message(&mut data, msg1.clone()).unwrap();
+        serialize_message(&mut data, msg2.clone()).unwrap();
+
+        let [ref temp_msg_1, ref temp_msg_2] = process_received_data(data.freeze()).unwrap()[..2]
+        else {
+            panic!("should be two messages");
+        };
+
+        assert_eq!(msg1, *temp_msg_1);
+        assert_eq!(msg2, *temp_msg_2);
+    }
+}
