@@ -17,6 +17,7 @@ mod service;
 // public use
 pub use error::Error;
 pub use service::Service;
+use tracing::debug;
 pub type Result<T> = core::result::Result<T, Error>;
 
 pub struct Tunnel {
@@ -26,9 +27,8 @@ pub struct Tunnel {
 impl Tunnel {
     /// Creates a new [`Tunnel`] instance from the provided payload.
     ///
-    /// The payload is expected to be a JSON-encoded [`Notify`] struct, which
-    /// contains the necessary information to establish a secure tunnel
-    /// connection with AWS IoT Secure Tunneling.
+    /// The payload contains the necessary information to establish a secure
+    /// tunnel connection with AWS IoT Secure Tunneling.
     ///
     /// The function performs the following checks:
     /// - Ensures the `client_mode` is "destination"
@@ -133,9 +133,11 @@ impl Tunnel {
                                 service.connect(websocket_in, websocket_out, close_tx.clone()).await?;
                             }
                             Type::StreamReset => {
+                                debug!("stream reset isn't supported for now");
                                 return Ok(());
                             }
                             Type::SessionReset => {
+                                debug!("session reset isn't supported for now");
                                 return Ok(());
                             }
                             Type::ServiceIds => {
@@ -145,6 +147,7 @@ impl Tunnel {
                                 // pass
                             }
                             Type::ConnectionReset => {
+                                debug!("connection reset don't supported for now");
                                 return Ok(());
                             }
                         }
@@ -161,7 +164,7 @@ impl Tunnel {
                     };
 
                     let mut out_payload = bytes::BytesMut::new();
-                    serialize_messages(&mut out_payload, msg)?;
+                    serialize_message(&mut out_payload, msg)?;
                     write.send(Message::Binary(out_payload.to_vec())).await?;
                 }
                 _ = close_rx.recv() => {
@@ -201,7 +204,7 @@ fn process_received_data(mut data: bytes::Bytes) -> Result<Vec<Msg>> {
     Ok(messages)
 }
 
-fn serialize_messages(buf: &mut bytes::BytesMut, message: Msg) -> Result<()> {
+fn serialize_message(buf: &mut bytes::BytesMut, message: Msg) -> Result<()> {
     let len = message
         .encoded_len()
         .try_into()

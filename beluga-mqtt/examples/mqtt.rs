@@ -7,24 +7,27 @@ use tracing::{info, Level};
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
-    let client = MqttClientBuilder::new()
-        .ca(include_bytes!("../../AmazonRootCA1.pem"))
-        .certificate(include_bytes!("../../certificate.pem.crt"))
-        .private_key(include_bytes!("../../private.pem.key"))
-        .endpoint(include_str!("../../endpoint.in"))
-        .thing_name(include_str!("../../thing-name.in"))
-        .build()?;
-
-    // for Github actions
     // let client = MqttClientBuilder::new()
-    //     .ca(&[])
-    //     .certificate(&[])
-    //     .private_key(&[])
-    //     .endpoint("")
-    //     .thing_name("")
+    //     .ca(include_bytes!("../../AmazonRootCA1.pem"))
+    //     .certificate(include_bytes!("../../certificate.pem.crt"))
+    //     .private_key(include_bytes!("../../private.pem.key"))
+    //     .endpoint(include_str!("../../endpoint.in"))
+    //     .thing_name(include_str!("../../thing-name.in"))
     //     .build()?;
 
-    let mut msg_sub = client.subscribe_many(["message", "other", "some"], QoS::AtLeastOnce).await?;
+    // for Github actions
+    let client = MqttClientBuilder::new()
+        .ca(&[])
+        .certificate(&[])
+        .private_key(&[])
+        .endpoint("")
+        .thing_name("")
+        .build()?;
+
+    let mut msg_sub = client
+        .subscribe_many(["message", "other", "some"], QoS::AtLeastOnce)
+        .await?;
+
     let _j = tokio::spawn(async move {
         loop {
             let msg = msg_sub.recv().await.unwrap();
@@ -44,8 +47,4 @@ async fn main() -> anyhow::Result<()> {
 
         tokio::time::sleep(Duration::from_secs(20)).await;
     }
-
-    // j.await?;
-
-    // Ok(())
 }

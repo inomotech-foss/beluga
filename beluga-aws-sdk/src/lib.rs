@@ -1,14 +1,17 @@
-use beluga_mqtt::{MqttClient, QoS, Subscriber};
+use beluga_mqtt::{MqttClient, Publish, QoS};
 use beluga_tunnel::Tunnel;
 use error::Error;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
+use tokio_util::sync::{CancellationToken, DropGuard};
+use tracing::debug;
 
 mod error;
 
 type Result<T> = std::result::Result<T, Error>;
 
 pub struct TunnelManager {
-    subscriber: Subscriber,
+    _handler: JoinHandle<Result<()>>,
+    _guard: DropGuard,
 }
 
 impl TunnelManager {
@@ -17,45 +20,75 @@ impl TunnelManager {
     ///
     /// This function creates a new [`TunnelManager`] instance by subscribing to
     /// the MQTT topic `$aws/things/{thing_name}/tunnels/notify` with a quality
-    /// of service level of at least once. The resulting
-    /// [`MqttSubscriber`](Subscriber) is stored in the [`TunnelManager`]
-    /// instance.
+    /// of service level of at least once.
     ///
     /// # Arguments
     ///
     /// * `mqtt` - The `MqttClient` instance to use for the MQTT subscription.
     /// * `thing_name` - The name of the AWS IoT thing to subscribe to.
     pub async fn new(mqtt: MqttClient, thing_name: &str) -> Result<Self> {
-        let subscriber = mqtt
+        let mut subscriber = mqtt
             .subscribe(
                 format!("$aws/things/{thing_name}/tunnels/notify").as_str(),
                 QoS::AtLeastOnce,
             )
             .await?;
 
-        Ok(Self { subscriber })
-    }
+        let cancel = CancellationToken::new();
+        let cancel_child = cancel.child_token();
 
-    /// Receives a packet from the subscriber and spawns a new task to start a
-    /// tunnel.
-    ///
-    /// This function is responsible for handling the incoming packet from the
-    /// subscriber and creating a new tunnel based on the payload of the
-    /// packet. It then starts the tunnel using the provided `Service`.
-    /// The function returns a `JoinHandle` for the spawned task, which can
-    /// be used to await the completion of the tunnel operation.
-    ///
-    /// # Errors
-    ///
-    /// This function may return an error if there is a problem receiving the
-    /// packet from the subscriber or starting the tunnel.
-    pub async fn recv(&mut self) -> Result<JoinHandle<Result<()>>> {
-        let packet = self.subscriber.recv().await?;
-        Ok(tokio::spawn(async move {
-            let service = beluga_ssh_service::SshService;
-            let tunnel = Tunnel::new(packet.payload).await?;
-            tunnel.start(service).await?;
+        let _handler = tokio::spawn(async move {
+            let mut set = JoinSet::new();
+            loop {
+                tokio::select! {
+                    _ = cancel_child.cancelled() => {
+                        debug!("let's shutdown all the services");
+                        set.shutdown().await;
+                        return Ok(());
+                    }
+                    packet = subscriber.recv() => {
+                        debug!("spawn new service");
+                        set.spawn(service(packet?, cancel_child.clone()));
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            _handler,
+            _guard: cancel.drop_guard(),
+        })
+    }
+}
+
+/// Runs the SSH service for a new tunnel.
+///
+/// This function is spawned as a new task when a tunnel notification is
+/// received. It creates a new Service instance and starts the tunnel using the
+/// payload from the received MQTT packet.
+///
+/// The function will run until the `cancel` token is triggered, indicating that
+/// the tunnel should be shut down.
+///
+/// # Arguments
+///
+/// * `packet` - The MQTT [`Publish`] packet containing the tunnel payload.
+/// * `cancel` - A [`CancellationToken`] that can be used to cancel the service.
+///
+/// # Returns
+///
+/// A [`Result`] indicating whether the service ran successfully.
+async fn service(packet: Publish, cancel: CancellationToken) -> Result<()> {
+    let service = beluga_ssh_service::SshService;
+    let tunnel = Tunnel::new(packet.payload).await?;
+    tokio::select! {
+        _ = cancel.cancelled() => {
+            debug!("ssh service cancelled");
             Ok(())
-        }))
+        }
+        res = tunnel.start(service) => {
+            res?;
+            Ok(())
+        }
     }
 }

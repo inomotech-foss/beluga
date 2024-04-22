@@ -264,7 +264,7 @@ async fn poll(
                 }
             }
             Err(conn_err) => {
-                error!(error = %conn_err, "connection error during polling in event loop");
+                error!(error = %conn_err, "connection error during polling");
             }
         }
     }
