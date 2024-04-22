@@ -7,21 +7,12 @@ use tracing::{info, Level};
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
-    // let client = MqttClientBuilder::new()
-    //     .ca(include_bytes!("../../AmazonRootCA1.pem"))
-    //     .certificate(include_bytes!("../../certificate.pem.crt"))
-    //     .private_key(include_bytes!("../../private.pem.key"))
-    //     .endpoint(include_str!("../../endpoint.in"))
-    //     .thing_name(include_str!("../../thing-name.in"))
-    //     .build()?;
-
-    // for Github actions
     let client = MqttClientBuilder::new()
-        .ca(&[])
-        .certificate(&[])
-        .private_key(&[])
-        .endpoint("")
-        .thing_name("")
+        .ca(&tokio::fs::read("AmazonRootCA1.pem").await?)
+        .certificate(&tokio::fs::read("certificate.pem.crt").await?)
+        .private_key(&tokio::fs::read("private.pem.key").await?)
+        .endpoint(&tokio::fs::read_to_string("endpoint.in").await?)
+        .thing_name(&tokio::fs::read_to_string("thing-name.in").await?)
         .build()?;
 
     let mut msg_sub = client

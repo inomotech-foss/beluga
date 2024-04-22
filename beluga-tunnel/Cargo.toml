@@ -10,7 +10,6 @@ publish.workspace = true
 
 [dependencies]
 bytes.workspace = true
-enumn.workspace = true
 prost.workspace = true
 futures.workspace = true
 serde.workspace = true

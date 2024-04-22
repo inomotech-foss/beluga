@@ -1,17 +1,21 @@
+use std::sync::Arc;
+
 use beluga_mqtt::{MqttClient, Publish, QoS};
 use beluga_tunnel::Tunnel;
 use error::Error;
+use tokio::sync::Mutex;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::{CancellationToken, DropGuard};
-use tracing::debug;
+use tracing::{debug, warn};
 
 mod error;
 
 type Result<T> = std::result::Result<T, Error>;
 
 pub struct TunnelManager {
-    _handler: JoinHandle<Result<()>>,
-    _guard: DropGuard,
+    tasks: Arc<Mutex<JoinSet<Result<()>>>>,
+    handle: Option<JoinHandle<Result<()>>>,
+    guard: Option<DropGuard>,
 }
 
 impl TunnelManager {
@@ -34,30 +38,70 @@ impl TunnelManager {
             )
             .await?;
 
+        let tasks = Arc::new(Mutex::new(JoinSet::new()));
         let cancel = CancellationToken::new();
+
         let cancel_child = cancel.child_token();
 
-        let _handler = tokio::spawn(async move {
-            let mut set = JoinSet::new();
+        let tasks_cp = tasks.clone();
+        let handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     _ = cancel_child.cancelled() => {
-                        debug!("let's shutdown all the services");
-                        set.shutdown().await;
-                        return Ok(());
+                        return Result::Ok(());
                     }
                     packet = subscriber.recv() => {
                         debug!("spawn new service");
-                        set.spawn(service(packet?, cancel_child.clone()));
+                        tasks_cp.lock().await.spawn(service(packet?, cancel_child.clone()));
                     }
                 }
             }
         });
 
         Ok(Self {
-            _handler,
-            _guard: cancel.drop_guard(),
+            tasks,
+            handle: Some(handle),
+            guard: Some(cancel.drop_guard()),
         })
+    }
+
+    /// Shuts down the tunnel manager and waits for all tasks to complete.
+    ///
+    /// This function first checks if the tunnel manager has already been shut
+    /// down. If so, it logs a warning and returns.
+    ///
+    /// If the tunnel manager has not been shut down, this function does the
+    /// following:
+    ///
+    /// 1. Retrieves the cancellation token and the handle to the tunnel
+    ///    manager's own task.
+    /// 2. Cancels the cancellation token, signaling that the tunnel manager
+    ///    should be shut down.
+    /// 3. Waits for all tasks managed by the tunnel manager to complete,
+    ///    handling any errors that occur.
+    /// 4. Waits for the tunnel manager's own task to complete, handling any
+    ///    errors that occur.
+    pub async fn shutdown(&mut self) -> Result<()> {
+        if let Some((cancel, self_handle)) = self
+            .guard
+            .take()
+            .map(DropGuard::disarm)
+            .zip(self.handle.take())
+        {
+            cancel.cancel();
+            let mut tasks = self.tasks.lock().await;
+
+            // Waits for all tasks to complete and handles any errors that occur.
+            while let Some(task_execution_res) = tasks.join_next().await {
+                task_execution_res??;
+            }
+
+            self_handle.await??;
+        } else {
+            warn!("Tunnel manager already shut down all the tasks");
+        }
+
+        Ok(())
     }
 }
 
@@ -83,7 +127,7 @@ async fn service(packet: Publish, cancel: CancellationToken) -> Result<()> {
     let tunnel = Tunnel::new(packet.payload).await?;
     tokio::select! {
         _ = cancel.cancelled() => {
-            debug!("ssh service cancelled");
+            warn!("ssh service cancelled");
             Ok(())
         }
         res = tunnel.start(service) => {

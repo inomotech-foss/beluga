@@ -17,7 +17,7 @@ mod service;
 // public use
 pub use error::Error;
 pub use service::Service;
-use tracing::debug;
+use tracing::warn;
 pub type Result<T> = core::result::Result<T, Error>;
 
 pub struct Tunnel {
@@ -133,11 +133,11 @@ impl Tunnel {
                                 service.connect(websocket_in, websocket_out, close_tx.clone()).await?;
                             }
                             Type::StreamReset => {
-                                debug!("stream reset isn't supported for now");
+                                warn!("stream reset isn't supported for now");
                                 return Ok(());
                             }
                             Type::SessionReset => {
-                                debug!("session reset isn't supported for now");
+                                warn!("session reset isn't supported for now");
                                 return Ok(());
                             }
                             Type::ServiceIds => {
@@ -147,7 +147,7 @@ impl Tunnel {
                                 // pass
                             }
                             Type::ConnectionReset => {
-                                debug!("connection reset don't supported for now");
+                                warn!("connection reset don't supported for now");
                                 return Ok(());
                             }
                         }

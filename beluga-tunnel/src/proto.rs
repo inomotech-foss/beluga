@@ -16,9 +16,7 @@ pub(crate) struct Message {
     pub connection_id: u32,
 }
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, prost::Enumeration, enumn::N,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, prost::Enumeration)]
 #[repr(i32)]
 pub(crate) enum Type {
     Unknown = 0,

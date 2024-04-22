@@ -258,13 +258,16 @@ async fn poll(
                     if let Some(subscriber) = subs.get(&topic) {
                         if let Err(err) = subscriber.send(packet) {
                             subs.remove(&topic);
-                            error!(error = %err, topic = %topic, "couldn't provide packet for a subscriber")
+                            error!(error = &err as &dyn std::error::Error, topic = %topic, "couldn't provide packet for a subscriber")
                         }
                     }
                 }
             }
             Err(conn_err) => {
-                error!(error = %conn_err, "connection error during polling");
+                error!(
+                    error = &conn_err as &dyn std::error::Error,
+                    "connection error during polling"
+                );
             }
         }
     }
