@@ -1,5 +1,6 @@
 use beluga_aws_sdk::TunnelManager;
 use beluga_mqtt::MqttClientBuilder;
+use tokio_util::sync::CancellationToken;
 use tracing::Level;
 
 #[tokio::main]
@@ -14,12 +15,19 @@ async fn main() -> anyhow::Result<()> {
         .thing_name(&tokio::fs::read_to_string("thing-name.in").await?)
         .build()?;
 
-    let _manager = TunnelManager::new(
+    let cancel = CancellationToken::new();
+
+    let manager = TunnelManager::new(
         client.clone(),
         &tokio::fs::read_to_string("thing-name.in").await?,
+        cancel.clone(),
     )
     .await?;
 
     tokio::signal::ctrl_c().await?;
+
+    cancel.cancel();
+    manager.shutdown().await;
+
     Ok(())
 }
