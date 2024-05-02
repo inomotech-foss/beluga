@@ -13,7 +13,11 @@ beluga-mqtt.workspace = true
 beluga-tunnel.workspace = true
 beluga-ssh-service.workspace = true
 bytes.workspace = true
+chrono = { workspace = true, features = ["serde"] }
+rand.workspace = true
 futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
