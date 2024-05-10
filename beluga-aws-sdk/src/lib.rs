@@ -6,6 +6,9 @@ use tokio_util::task::TaskTracker;
 use tracing::{debug, warn};
 
 mod error;
+mod jobs;
+
+pub use jobs::{Job, JobStatus, JobsClient};
 
 type Result<T> = std::result::Result<T, Error>;
 

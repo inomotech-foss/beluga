@@ -1,18 +1,22 @@
-use std::collections::{HashMap, HashSet};
+use core::ops::DerefMut;
 use std::sync::Arc;
 
 pub use error::Error;
-use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, SubscribeFilter, Transport};
+use manager::SubscriberManager;
+use rumqttc::{
+    AsyncClient, ConnectionError, Event, EventLoop, MqttOptions, Packet, SubscribeFilter, Transport,
+};
 pub use rumqttc::{Publish, QoS};
-use tokio::sync::broadcast::{self, Receiver, Sender};
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
-use tracing::error;
+use tokio::sync::broadcast::Receiver;
+use tokio::sync::{mpsc, Mutex};
+use tracing::{debug, error};
 
 pub type Result<T> = core::result::Result<T, Error>;
 
 mod error;
+mod manager;
 
+#[derive(Debug)]
 pub struct Subscriber(Vec<Receiver<Publish>>);
 
 impl Subscriber {
@@ -96,11 +100,9 @@ impl<'a> MqttClientBuilder<'a> {
 
     /// Builds an MQTT client with the configured options.
     pub fn build(self) -> Result<MqttClient> {
-        let mut options = MqttOptions::new(
-            self.thing_name.ok_or(Error::ThingName)?,
-            self.endpoint.ok_or(Error::Endpoint)?,
-            self.port,
-        );
+        let thing_name = self.thing_name.ok_or(Error::ThingName)?;
+        let mut options =
+            MqttOptions::new(thing_name, self.endpoint.ok_or(Error::Endpoint)?, self.port);
         options.set_transport(Transport::tls(
             self.certificate_authority.ok_or(Error::Ca)?.to_vec(),
             (
@@ -111,14 +113,21 @@ impl<'a> MqttClientBuilder<'a> {
             None,
         ));
 
-        let subscribers = Arc::new(Mutex::new(HashMap::new()));
+        let manager = Arc::new(Mutex::new(SubscriberManager::default()));
         let (client, event_loop) = AsyncClient::new(options, 10);
-        let worker = tokio::spawn(poll(event_loop, subscribers.clone()));
+        let (close_tx, close_rx) = mpsc::channel::<()>(1);
+        tokio::spawn(poll(
+            client.clone(),
+            event_loop,
+            close_rx,
+            Arc::clone(&manager),
+        ));
 
         Ok(MqttClient {
             client,
-            subscribers,
-            _worker: Arc::new(Mutex::new(worker)),
+            manager,
+            close_tx,
+            thing_name: thing_name.to_owned(),
         })
     }
 }
@@ -126,8 +135,15 @@ impl<'a> MqttClientBuilder<'a> {
 #[derive(Debug, Clone)]
 pub struct MqttClient {
     client: AsyncClient,
-    subscribers: Arc<Mutex<HashMap<String, Sender<Publish>>>>,
-    _worker: Arc<Mutex<JoinHandle<()>>>,
+    thing_name: String,
+    close_tx: mpsc::Sender<()>,
+    manager: Arc<Mutex<SubscriberManager>>,
+}
+
+impl Drop for MqttClient {
+    fn drop(&mut self) {
+        let _ = self.close_tx.try_send(());
+    }
 }
 
 impl MqttClient {
@@ -142,15 +158,13 @@ impl MqttClient {
     /// A [Result] containing a [Subscriber] if the subscription is successful,
     /// otherwise an [Error].
     pub async fn subscribe(&self, topic: &str, qos: QoS) -> Result<Subscriber> {
-        let mut subs = self.subscribers.lock().await;
+        let mut manager = self.manager.lock().await;
 
-        if let Some(sender) = subs.get(topic) {
-            Ok(Subscriber(vec![sender.subscribe()]))
+        if let Some(rx) = manager.receiver(topic) {
+            Ok(Subscriber(vec![rx]))
         } else {
             self.client.subscribe(topic, qos).await?;
-            let (tx, rx) = broadcast::channel::<Publish>(10);
-            subs.insert(topic.to_owned(), tx);
-            Ok(Subscriber(vec![rx]))
+            Ok(Subscriber(vec![manager.subscribe(topic)]))
         }
     }
 
@@ -165,20 +179,14 @@ impl MqttClient {
     /// # Returns
     /// A [Result] containing a [Subscriber] if the subscriptions are
     /// successful, otherwise an [Error].
-    pub async fn subscribe_many(
-        &self,
-        topics: impl IntoIterator<Item = &str>,
-        qos: QoS,
-    ) -> Result<Subscriber> {
-        let topics = HashSet::<&str>::from_iter(topics.into_iter());
+    pub async fn subscribe_many<Iter>(&self, topics: Iter, qos: QoS) -> Result<Subscriber>
+    where
+        Iter: IntoIterator,
+        Iter::Item: AsRef<str>,
+    {
+        let mut manager = self.manager.lock().await;
 
-        let mut subs = self.subscribers.lock().await;
-
-        let new_topics = HashSet::from_iter(subs.keys().map(String::as_str))
-            .symmetric_difference(&topics)
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-
+        let new_topics = manager.subscribed_diff(topics);
         self.client
             .subscribe_many(
                 new_topics
@@ -188,24 +196,7 @@ impl MqttClient {
             .await
             .map_err(Error::from)?;
 
-        let all_keys = subs
-            .keys()
-            .map(ToOwned::to_owned)
-            .chain(new_topics.into_iter())
-            .collect::<Vec<_>>();
-
-        let receivers = all_keys
-            .into_iter()
-            .map(|topic| {
-                let sender = subs.entry(topic.to_owned()).or_insert_with(|| {
-                    let (tx, ..) = broadcast::channel::<Publish>(10);
-                    tx
-                });
-                sender.subscribe()
-            })
-            .collect::<Vec<_>>();
-
-        Ok(Subscriber(receivers))
+        Ok(Subscriber(manager.subscribe_many(new_topics)))
     }
 
     /// Publishes a message to the MQTT broker.
@@ -240,35 +231,141 @@ impl MqttClient {
     /// A [Result] indicating whether the unsubscription was successful.
     pub async fn unsubscribe(&self, topic: &str) -> Result<()> {
         self.client.unsubscribe(topic).await?;
-        let _ = self.subscribers.lock().await.remove(topic);
+        self.manager.lock().await.unsubscribe(topic);
         Ok(())
+    }
+
+    /// Schedules unsubscription from a single MQTT topic.
+    ///
+    /// This method schedules unsubscription from the provided topic. The
+    /// actual unsubscription will happen at a later time.
+    ///
+    /// # Arguments
+    /// * `topic` - The topic name to unsubscribe from.
+    pub fn schedule_unsubscribe(&self, topic: &str) {
+        let manager = self.manager.clone();
+        let topic = topic.to_owned();
+
+        tokio::spawn(async move {
+            manager.lock().await.schedule_unsubscribe(&topic);
+        });
+    }
+
+    /// Unsubscribes the client from multiple MQTT topics.
+    /// If any unsubscribe operation fails, the function returns an error.
+    ///
+    /// # Arguments
+    /// * `topics` - An iterator of topic strings to unsubscribe from.
+    ///
+    /// # Returns
+    /// A [`Result`] indicating whether the unsubscribe operation was
+    /// successful.
+    pub async fn unsubscribe_many<Iter>(&self, topics: Iter) -> Result<()>
+    where
+        Iter: IntoIterator,
+        Iter::Item: AsRef<str>,
+    {
+        let _ = futures::future::try_join_all(topics.into_iter().map(|topic| async move {
+            self.client.unsubscribe(topic.as_ref()).await?;
+            self.manager.lock().await.unsubscribe(topic.as_ref());
+            Result::Ok(())
+        }))
+        .await?;
+
+        Ok(())
+    }
+
+    /// Schedules unsubscription from multiple topics.
+    ///
+    /// This method schedules unsubscription from the provided topics. The
+    /// actual unsubscription will happen at a later time
+    ///
+    /// # Arguments
+    /// * `topics` - An iterator of topic names to unsubscribe from.
+    pub fn schedule_unsubscribe_many<Iter>(&self, topics: Iter)
+    where
+        Iter: IntoIterator,
+        Iter::Item: AsRef<str>,
+    {
+        let manager = self.manager.clone();
+        let topics = topics
+            .into_iter()
+            .map(|topic| topic.as_ref().to_owned())
+            .collect::<Vec<_>>();
+
+        tokio::spawn(async move {
+            manager.lock().await.schedule_unsubscribe_many(topics);
+        });
+    }
+
+    /// Returns a reference to the name of the thing.
+    pub fn thing_name(&self) -> &str {
+        &self.thing_name
     }
 }
 
 async fn poll(
+    client: AsyncClient,
     mut event_loop: EventLoop,
-    subscribers: Arc<Mutex<HashMap<String, Sender<Publish>>>>,
+    mut close_rx: mpsc::Receiver<()>,
+    manager: Arc<Mutex<SubscriberManager>>,
 ) {
     loop {
-        match event_loop.poll().await {
-            Ok(event) => {
-                if let Event::Incoming(Packet::Publish(packet)) = event {
-                    let mut subs = subscribers.lock().await;
-                    let topic = packet.topic.clone();
-                    if let Some(subscriber) = subs.get(&topic) {
-                        if let Err(err) = subscriber.send(packet) {
-                            subs.remove(&topic);
-                            error!(error = &err as &dyn std::error::Error, topic = %topic, "couldn't provide packet for a subscriber")
-                        }
-                    }
-                }
+        tokio::select! {
+            event = event_loop.poll() => {
+                process_event(&client, event, manager.lock().await.deref_mut()).await;
             }
-            Err(conn_err) => {
-                error!(
-                    error = &conn_err as &dyn std::error::Error,
-                    "connection error during polling"
-                );
+            _ = close_rx.recv() => {
+                debug!("exit event poll loop");
+                break;
             }
+        }
+    }
+}
+
+async fn process_event(
+    client: &AsyncClient,
+    event: std::result::Result<Event, ConnectionError>,
+    manager: &mut SubscriberManager,
+) {
+    match event {
+        Ok(event) => {
+            if let Event::Incoming(Packet::Publish(packet)) = event {
+                process_packet(packet, client, manager).await;
+            }
+        }
+        Err(conn_err) => {
+            error!(
+                error = &conn_err as &dyn std::error::Error,
+                "connection error during polling"
+            );
+        }
+    }
+}
+
+async fn process_packet(packet: Publish, client: &AsyncClient, manager: &mut SubscriberManager) {
+    // Unsubscribes the client from the topics that are currently scheduled for
+    // unsubscription.
+    let removed_topics = manager
+        .scheduled()
+        .filter_map(|topic| {
+            client
+                .try_unsubscribe(topic)
+                .ok()
+                .and(Some(topic.to_owned()))
+        })
+        .collect::<Vec<_>>();
+
+    for topic in removed_topics {
+        manager.unsubscribe(&topic);
+    }
+
+    let topic = packet.topic.clone();
+
+    if let Some(sender) = manager.sender(&topic) {
+        if let Err(err) = sender.send(packet) {
+            manager.unsubscribe(&topic);
+            error!(error = &err as &dyn std::error::Error, topic = %topic, "couldn't provide packet for a subscriber")
         }
     }
 }
