@@ -113,9 +113,9 @@ impl<'a> MqttClientBuilder<'a> {
             None,
         ));
 
-        let manager = Arc::new(Mutex::new(SubscriberManager::default()));
         let (client, event_loop) = AsyncClient::new(options, 10);
         let (close_tx, close_rx) = mpsc::channel::<()>(1);
+        let manager = Arc::new(Mutex::new(SubscriberManager::with_close_tx(close_tx)));
         tokio::spawn(poll(
             client.clone(),
             event_loop,
@@ -126,7 +126,6 @@ impl<'a> MqttClientBuilder<'a> {
         Ok(MqttClient {
             client,
             manager,
-            close_tx,
             thing_name: thing_name.to_owned(),
         })
     }
@@ -136,21 +135,7 @@ impl<'a> MqttClientBuilder<'a> {
 pub struct MqttClient {
     client: AsyncClient,
     thing_name: String,
-    close_tx: mpsc::Sender<()>,
     manager: Arc<Mutex<SubscriberManager>>,
-}
-
-impl Drop for MqttClient {
-    fn drop(&mut self) {
-        // Attempts to send a close signal to the MQTT client manager if this
-        // is the last reference to the manager.
-        //
-        // This is likely used to gracefully close the MQTT client connection
-        // when the last reference to the manager is dropped.
-        if Arc::strong_count(&self.manager) < 2 {
-            let _ = self.close_tx.try_send(());
-        }
-    }
 }
 
 impl MqttClient {
