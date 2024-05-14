@@ -142,7 +142,14 @@ pub struct MqttClient {
 
 impl Drop for MqttClient {
     fn drop(&mut self) {
-        let _ = self.close_tx.try_send(());
+        // Attempts to send a close signal to the MQTT client manager if this
+        // is the last reference to the manager.
+        //
+        // This is likely used to gracefully close the MQTT client connection
+        // when the last reference to the manager is dropped.
+        if Arc::strong_count(&self.manager) < 2 {
+            let _ = self.close_tx.try_send(());
+        }
     }
 }
 
