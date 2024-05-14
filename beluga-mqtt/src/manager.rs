@@ -304,4 +304,16 @@ mod tests {
         let scheduled: Vec<_> = manager.scheduled().collect();
         assert_eq!(scheduled, vec!["topic3"]);
     }
+
+    #[tokio::test]
+    async fn with_close_tx_closes_manager() {
+        let (close_tx, mut close_rx) = mpsc::channel(1);
+        let manager = SubscriberManager::with_close_tx(close_tx);
+
+        // Drop the manager
+        drop(manager);
+
+        // Ensure close signal is received
+        assert!(close_rx.recv().await.is_some());
+    }
 }
