@@ -2,14 +2,40 @@ use std::collections::{HashMap, HashSet};
 
 use rumqttc::Publish;
 use tokio::sync::broadcast::{self, Receiver, Sender};
+use tokio::sync::mpsc;
+use tracing::warn;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct SubscriberManager {
     subscribed: HashMap<String, Sender<Publish>>,
     unsubscribed: HashSet<String>,
+    close_tx: Option<mpsc::Sender<()>>,
 }
 
 impl SubscriberManager {
+    /// Creates a new `Manager` instance with no `close_tx` channel sender.
+    /// The `close_tx` channel is used to signal when the manager should be
+    /// closed. By default, the `close_tx` channel is set to `None`.
+    #[allow(dead_code)]
+    pub(super) fn new() -> Self {
+        Self {
+            subscribed: HashMap::default(),
+            unsubscribed: HashSet::default(),
+            close_tx: None,
+        }
+    }
+
+    /// Creates a new `Manager` instance with the provided `close_tx` channel
+    /// sender. The `close_tx` channel is used to signal when the manager
+    /// should be closed.
+    pub(super) fn with_close_tx(close_tx: mpsc::Sender<()>) -> Self {
+        Self {
+            close_tx: Some(close_tx),
+            subscribed: HashMap::default(),
+            unsubscribed: HashSet::default(),
+        }
+    }
+
     /// Returns a reference to the `Sender` for the given topic, if the
     /// topic is currently subscribed.
     pub(super) fn sender(&self, topic: &str) -> Option<&Sender<Publish>> {
@@ -90,20 +116,33 @@ impl SubscriberManager {
     }
 }
 
+impl Drop for SubscriberManager {
+    fn drop(&mut self) {
+        // Attempts to send a close signal to the subscriber manager's close
+        // channel. If the send operation fails, a warning is logged
+        // with the error.
+        if let Some(close_tx) = self.close_tx.take() {
+            if let Err(err) = close_tx.try_send(()) {
+                warn!(error = %err, "failed to close subscriber manager");
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn default_state() {
-        let manager = SubscriberManager::default();
+        let manager = SubscriberManager::new();
         assert!(manager.subscribed.is_empty());
         assert!(manager.unsubscribed.is_empty());
     }
 
     #[test]
     fn subscribe() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let topic = "topic";
 
         let _receiver = manager.subscribe(topic);
@@ -115,7 +154,7 @@ mod tests {
 
     #[test]
     fn subscribe_existing() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let topic = "topic";
 
         let _ = manager.subscribe(topic);
@@ -127,7 +166,7 @@ mod tests {
 
     #[test]
     fn unsubscribe() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let topic = "topic";
 
         manager.subscribe(topic);
@@ -139,7 +178,7 @@ mod tests {
 
     #[test]
     fn schedule_unsubscribe() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let topic = "topic";
 
         manager.subscribe(topic);
@@ -151,7 +190,7 @@ mod tests {
 
     #[test]
     fn subscribed_diff() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         manager.subscribe_many(["topic1", "topic2", "topic3"]);
         let diff = manager.subscribed_diff(["topic4", "topic5", "topic2"]);
         assert_eq!(diff, ["topic4", "topic5"]);
@@ -159,7 +198,7 @@ mod tests {
 
     #[test]
     fn subscribed_diff_empty() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         manager.subscribe_many(["topic1", "topic2", "topic3"]);
         let diff = manager.subscribed_diff(["topic2", "topic3"]);
         assert!(diff.is_empty());
@@ -167,7 +206,7 @@ mod tests {
 
     #[test]
     fn receiver() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let topic = "topic";
         manager.subscribe(topic);
         let receiver = manager.receiver(topic);
@@ -176,7 +215,7 @@ mod tests {
 
     #[test]
     fn schedule_unsubscribe_many() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
 
         manager.subscribe("topic1");
         manager.subscribe("topic2");
@@ -188,7 +227,7 @@ mod tests {
 
     #[test]
     fn scheduled() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         manager.schedule_unsubscribe("topic1");
         manager.schedule_unsubscribe("topic2");
 
@@ -199,7 +238,7 @@ mod tests {
 
     #[test]
     fn subscribe_empty_topic() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let empty_topic = "";
 
         let _ = manager.subscribe(empty_topic);
@@ -209,7 +248,7 @@ mod tests {
 
     #[test]
     fn unsubscribe_non_existing() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let non_existing_topic = "non_existing_topic";
 
         manager.unsubscribe(non_existing_topic);
@@ -220,7 +259,7 @@ mod tests {
 
     #[test]
     fn subscribe_many() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let topics = vec!["topic1", "topic2", "topic3"];
 
         let receivers = manager.subscribe_many(topics.clone());
@@ -233,7 +272,7 @@ mod tests {
 
     #[test]
     fn schedule_unsubscribe_already_unsubscribed() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
         let topic = "already_unsubscribed";
 
         manager.schedule_unsubscribe(topic);
@@ -245,7 +284,7 @@ mod tests {
 
     #[test]
     fn combination_of_operations() {
-        let mut manager = SubscriberManager::default();
+        let mut manager = SubscriberManager::new();
 
         // Subscribe to multiple topics
         let topics = vec!["topic1", "topic2", "topic3"];
