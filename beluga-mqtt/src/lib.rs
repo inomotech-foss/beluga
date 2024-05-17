@@ -16,6 +16,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 mod error;
 mod manager;
 
+/// Represents an MQTT subscriber that can receive `Publish` messages.
 #[derive(Debug)]
 pub struct Subscriber(Vec<Receiver<Publish>>);
 
@@ -39,11 +40,12 @@ impl Clone for Subscriber {
             self.0
                 .iter()
                 .map(|receiver| receiver.resubscribe())
-                .collect::<Vec<_>>(),
+                .collect(),
         )
     }
 }
 
+/// A builder for creating an `MqttClient` with specific configurations.
 #[derive(Debug, Default)]
 pub struct MqttClientBuilder<'a> {
     certificate: Option<&'a [u8]>,
@@ -55,6 +57,10 @@ pub struct MqttClientBuilder<'a> {
 }
 
 impl<'a> MqttClientBuilder<'a> {
+    /// Creates a new `MqttClientBuilder` with default settings.
+    ///
+    /// # Returns
+    /// A new `MqttClientBuilder` instance.
     pub fn new() -> Self {
         Self {
             port: 8883,
@@ -149,14 +155,14 @@ impl MqttClient {
     /// # Returns
     /// A [Result] containing a [Subscriber] if the subscription is successful,
     /// otherwise an [Error].
-    pub async fn subscribe(&self, topic: &str, qos: QoS) -> Result<Subscriber> {
+    pub async fn subscribe(&self, topic: impl AsRef<str>, qos: QoS) -> Result<Subscriber> {
         let mut manager = self.manager.lock().await;
 
-        if let Some(rx) = manager.receiver(topic) {
+        if let Some(rx) = manager.receiver(topic.as_ref()) {
             Ok(Subscriber(vec![rx]))
         } else {
-            self.client.subscribe(topic, qos).await?;
-            Ok(Subscriber(vec![manager.subscribe(topic)]))
+            self.client.subscribe(topic.as_ref(), qos).await?;
+            Ok(Subscriber(vec![manager.subscribe(topic.as_ref())]))
         }
     }
 
@@ -185,8 +191,7 @@ impl MqttClient {
                     .iter()
                     .map(|topic| SubscribeFilter::new(topic.to_owned(), qos)),
             )
-            .await
-            .map_err(Error::from)?;
+            .await?;
 
         Ok(Subscriber(manager.subscribe_many(new_topics)))
     }
@@ -203,13 +208,13 @@ impl MqttClient {
     /// A [Result] indicating whether the publication was successful.
     pub async fn publish(
         &self,
-        topic: &str,
+        topic: impl AsRef<str>,
         qos: QoS,
         retain: bool,
         payload: bytes::Bytes,
     ) -> Result<()> {
         self.client
-            .publish(topic, qos, retain, payload)
+            .publish(topic.as_ref(), qos, retain, payload)
             .await
             .map_err(Error::from)
     }
@@ -221,9 +226,9 @@ impl MqttClient {
     ///
     /// # Returns
     /// A [Result] indicating whether the unsubscription was successful.
-    pub async fn unsubscribe(&self, topic: &str) -> Result<()> {
-        self.client.unsubscribe(topic).await?;
-        self.manager.lock().await.unsubscribe(topic);
+    pub async fn unsubscribe(&self, topic: impl AsRef<str>) -> Result<()> {
+        self.client.unsubscribe(topic.as_ref()).await?;
+        self.manager.lock().await.unsubscribe(topic.as_ref());
         Ok(())
     }
 
@@ -234,9 +239,9 @@ impl MqttClient {
     ///
     /// # Arguments
     /// * `topic` - The topic name to unsubscribe from.
-    pub fn schedule_unsubscribe(&self, topic: &str) {
+    pub fn schedule_unsubscribe(&self, topic: impl AsRef<str>) {
         let manager = self.manager.clone();
-        let topic = topic.to_owned();
+        let topic = topic.as_ref().to_owned();
 
         tokio::spawn(async move {
             manager.lock().await.schedule_unsubscribe(&topic);
@@ -290,12 +295,13 @@ impl MqttClient {
         });
     }
 
-    /// Returns a reference to the name of the thing.
+    /// Returns the name of the thing associated with this `MqttClient`.
     pub fn thing_name(&self) -> &str {
         &self.thing_name
     }
 }
 
+/// Asynchronous function that handles polling the MQTT event loop.
 async fn poll(
     client: AsyncClient,
     mut event_loop: EventLoop,
@@ -315,6 +321,7 @@ async fn poll(
     }
 }
 
+/// Processes an MQTT event.
 async fn process_event(
     client: &AsyncClient,
     event: std::result::Result<Event, ConnectionError>,
@@ -335,6 +342,7 @@ async fn process_event(
     }
 }
 
+/// Processes a received MQTT packet.
 async fn process_packet(packet: Publish, client: &AsyncClient, manager: &mut SubscriberManager) {
     // Unsubscribes the client from the topics that are currently scheduled for
     // unsubscription.
