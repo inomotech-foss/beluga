@@ -8,16 +8,19 @@ use tracing::warn;
 
 pub use self::data::JobStatus;
 use self::data::{
-    GetPendingJobsExecutionReq, GetPendingJobsExecutionResp, JobExecution, JobExecutionSummary,
-    StartNextPendingJobExecutionReq, StartNextPendingJobExecutionResp, UpdateJobExecutionReq,
-    UpdateJobExecutionResp,
+    DescribeJobExecutionReq, GetPendingJobsExecutionReq, GetPendingJobsExecutionResp, JobExecution,
+    JobExecutionSummary, StartNextPendingJobExecutionReq, StartNextPendingJobExecutionResp,
+    UpdateJobExecutionReq, UpdateJobExecutionResp,
 };
 use crate::error::Error;
+use crate::jobs::data::DescribeJobExecutionResp;
 use crate::Result;
 
 mod data;
 mod datetime;
 
+/// The `JobsClient` struct is responsible for interacting with AWS IoT Jobs
+/// through an MQTT client.
 #[derive(Debug, Clone)]
 pub struct JobsClient {
     mqtt: MqttClient,
@@ -25,34 +28,113 @@ pub struct JobsClient {
 }
 
 impl JobsClient {
-    /// Creates a new `Job` instance with the provided MQTT client.
+    /// Creates a new `JobsClient` instance with the provided MQTT client.
     ///
     /// This function sets up the necessary MQTT subscriptions to handle
-    /// job-related events, such as job acceptance and rejection. The
-    /// returned `Job` instance can be used to interact with the AWS IoT
-    /// Jobs service.
+    /// job-related events, such as job acceptance and rejection.
     ///
     /// # Arguments
     /// * `mqtt` - The MQTT client to use for communicating with the AWS IoT
     ///   Jobs service.
     ///
     /// # Returns
-    /// A `Result` containing the new `Job` instance, or an error if the MQTT
-    /// subscriptions could not be established.
+    /// A `Result` containing the new `JobsClient` instance, or an error if the
+    /// MQTT subscriptions could not be established.
     pub async fn new(mqtt: MqttClient) -> Result<Self> {
         let subscriber = mqtt
             .subscribe_many(
                 [
-                    get_accepted(mqtt.thing_name()).as_str(),
-                    get_rejected(mqtt.thing_name()).as_str(),
-                    start_next_accepted(mqtt.thing_name()).as_str(),
-                    start_next_rejected(mqtt.thing_name()).as_str(),
+                    get_accepted(mqtt.thing_name()),
+                    get_rejected(mqtt.thing_name()),
+                    start_next_accepted(mqtt.thing_name()),
+                    start_next_rejected(mqtt.thing_name()),
                 ],
                 QoS::AtLeastOnce,
             )
             .await?;
 
         Ok(Self { mqtt, subscriber })
+    }
+
+    /// Retrieves the job for the specified job ID.
+    ///
+    /// # Arguments
+    /// * `job_id` - The ID of the job to retrieve.
+    ///
+    /// # Returns
+    /// A `Result` containing the `Job` struct with the job execution details,
+    /// or an error if the request fails.
+    pub async fn job(&mut self, job_id: &str) -> Result<Job> {
+        let thing_name = self.mqtt.thing_name();
+        let topics = &[
+            get_job_accepted(thing_name, job_id),
+            get_job_rejected(thing_name, job_id),
+        ];
+
+        let mut subscriber = self.mqtt.subscribe_many(topics, QoS::AtLeastOnce).await?;
+
+        let res = async {
+            let get_job_token = token();
+            self.mqtt
+                .publish(
+                    format!("$aws/things/{thing_name}/jobs/{job_id}/get"),
+                    QoS::AtLeastOnce,
+                    false,
+                    bytes::Bytes::copy_from_slice(&serde_json::to_vec(&DescribeJobExecutionReq {
+                        token: get_job_token.clone().into(),
+                        ..Default::default()
+                    })?),
+                )
+                .await?;
+
+            loop {
+                let packet = subscriber.recv().await?;
+
+                if packet.topic == get_job_accepted(thing_name, job_id) {
+                    let DescribeJobExecutionResp {
+                        execution, token, ..
+                    } = serde_json::from_slice::<DescribeJobExecutionResp>(&packet.payload)?;
+                    if token.is_some_and(|token| token == get_job_token) {
+                        let info = execution
+                            .map(JobInfo::from)
+                            .ok_or(Error::JobExecutionMissing(job_id.to_owned()))?;
+
+                        return Ok(Job::new(info, self.mqtt.clone()));
+                    }
+
+                    warn!(packet = ?packet, "token mismatch during job retrieval");
+                } else if packet.topic == get_job_rejected(thing_name, job_id) {
+                    return Err(Error::GetJobRejected(job_id.to_owned()));
+                }
+
+                warn!(packet = ?packet, "unexpected packet received during job retrieval");
+            }
+        }
+        .await;
+
+        self.mqtt.unsubscribe_many(topics).await?;
+
+        res
+    }
+
+    /// Returns all queued jobs.
+    /// It's just a wrapper around `get()` but only returns the queued jobs.
+    ///
+    /// # Returns
+    /// A `Result` containing a vector of queued `Job` instances.
+    pub async fn queued_jobs(&mut self) -> Result<Vec<Job>> {
+        let (_, queued_jobs) = self.get().await?;
+        Ok(queued_jobs)
+    }
+
+    /// Returns all progress jobs.
+    /// It's just a wrapper around `get()` but only returns the progress jobs.
+    ///
+    /// # Returns
+    /// A `Result` containing a vector of in-progress `Job` instances.
+    pub async fn progress_jobs(&mut self) -> Result<Vec<Job>> {
+        let (progress_jobs, _) = self.get().await?;
+        Ok(progress_jobs)
     }
 
     /// Retrieves the list of pending jobs from the AWS IoT Jobs service.
@@ -68,6 +150,10 @@ impl JobsClient {
     ///   rejected by the AWS IoT Jobs service.
     /// - Any other errors that may occur during the MQTT communication or JSON
     ///   deserialization.
+    ///
+    /// # Returns
+    /// A `Result` containing a tuple of vectors: the first vector contains
+    /// in-progress jobs, and the second vector contains queued jobs.
     pub async fn get(&mut self) -> Result<(Vec<Job>, Vec<Job>)> {
         let get_jobs_token = token();
         self.mqtt
@@ -104,12 +190,12 @@ impl JobsClient {
                     ));
                 }
 
-                warn!(packet = ?packet, "token mismatch");
+                warn!(packet = ?packet, "token mismatch during pending jobs retrieval");
             } else if packet.topic == get_rejected(self.mqtt.thing_name()) {
                 return Err(Error::GetJobsRejected);
             }
 
-            warn!(packet = ?packet, "unexpected packet");
+            warn!(packet = ?packet, "unexpected packet received during pending jobs retrieval");
         }
     }
 
@@ -122,8 +208,13 @@ impl JobsClient {
     /// new `Job` instance if the request is accepted, or an error if it is
     /// rejected.
     ///
-    /// The `details` parameter is an optional `HashMap` that can be used to
-    /// provide additional details for the job execution.
+    /// # Arguments
+    /// * `details` - An optional `HashMap` that can be used to provide
+    ///   additional details for the job execution.
+    ///
+    /// # Returns
+    /// A `Result` containing the new `Job` instance, or an error if the request
+    /// is rejected.
     pub async fn start_next(&mut self, details: Option<HashMap<String, String>>) -> Result<Job> {
         let start_next_job_token = token();
         self.mqtt
@@ -148,16 +239,16 @@ impl JobsClient {
                 let StartNextPendingJobExecutionResp {
                     execution, token, ..
                 } = serde_json::from_slice::<StartNextPendingJobExecutionResp>(&packet.payload)?;
-                if token == start_next_job_token {
+                if token.is_some_and(|token| token == start_next_job_token) {
                     return Ok(Job::new(JobInfo::from(execution), self.mqtt.clone()));
                 }
 
-                warn!(packet = ?packet, "token mismatch");
+                warn!(packet = ?packet, "token mismatch during next job execution start");
             } else if packet.topic == start_next_rejected(self.mqtt.thing_name()) {
                 return Err(Error::GetJobsRejected);
             }
 
-            warn!(packet = ?packet, "unexpected packet");
+            warn!(packet = ?packet, "unexpected packet received during next job execution start");
         }
     }
 }
@@ -173,6 +264,8 @@ impl Drop for JobsClient {
     }
 }
 
+/// The `Job` struct represents a job execution and provides methods for
+/// updating it's status.
 #[derive(Debug, Clone)]
 pub struct Job {
     info: JobInfo,
@@ -181,6 +274,8 @@ pub struct Job {
 }
 
 impl Job {
+    /// Creates a new `Job` instance with the given job information and MQTT
+    /// client.
     fn new(info: JobInfo, mqtt: MqttClient) -> Self {
         Self {
             info,
@@ -189,25 +284,26 @@ impl Job {
         }
     }
 
-    /// Updates the job execution status for the current job.
+    /// Updates the status of the job to the specified status.
     ///
-    /// This function publishes an update to the AWS IoT Core job execution
-    /// topic for the current job, and then waits for a response indicating
-    /// whether the update was accepted or rejected.
+    /// This function publishes a message to the
+    /// `$aws/things/{thing_name}/jobs/{job_id}/update` topic to update the
+    /// job execution status. It then waits for a response on the
+    /// `update_accepted` and `update_rejected` topics, and returns an error
+    /// if the request is rejected.
     ///
+    /// # Arguments
+    /// * `status` - The new job status.
     ///
-    /// If the update is rejected, the function returns an
-    /// `Error::UpdateJobRequestRejected` error.
+    /// # Returns
+    /// A `Result` indicating the success or failure of the operation.
     ///
     /// # Errors
     /// This function may return the following errors:
-    /// - `Error::JobIdMissing`: if the job ID is missing from `self.info.id`.
-    /// - `Error::JobVersion`: if the job version is missing from
-    ///   `self.info.version`.
-    /// - `Error::UpdateJobRequestRejected`: if the job update request is
-    ///   rejected by AWS IoT Core.
-    /// - Any other errors that may occur during MQTT publishing or
-    ///   subscription.
+    /// * `Error::JobIdMissing` - If the job ID is missing.
+    /// * `Error::JobVersion` - If the job version is missing.
+    /// * `Error::UpdateJobRequestRejected` - If the job update request is
+    ///   rejected.
     pub async fn update(&mut self, status: JobStatus) -> Result<()> {
         let Some(job_id) = self.info.id.as_ref() else {
             return Err(Error::JobIdMissing);
@@ -271,7 +367,7 @@ impl Job {
                 return Err(Error::UpdateJobRequestRejected(job_id.to_owned()));
             }
 
-            warn!(packet = ?packet, "unexpected packet");
+            warn!(packet = ?packet, "unexpected packet received during job update");
         }
     }
 
@@ -343,17 +439,17 @@ impl Drop for Job {
     }
 }
 
-// #[must_use]
-// #[inline(always)]
-// fn get_job_accepted(thing_name: &str, job_id: &str) -> String {
-//     format!("$aws/things/{thing_name}/jobs/{job_id}/get/accepted")
-// }
+#[must_use]
+#[inline(always)]
+fn get_job_accepted(thing_name: &str, job_id: &str) -> String {
+    format!("$aws/things/{thing_name}/jobs/{job_id}/get/accepted")
+}
 
-// #[must_use]
-// #[inline(always)]
-// fn get_job_rejected(thing_name: &str, job_id: &str) -> String {
-//     format!("$aws/things/{thing_name}/jobs/{job_id}/get/rejected")
-// }
+#[must_use]
+#[inline(always)]
+fn get_job_rejected(thing_name: &str, job_id: &str) -> String {
+    format!("$aws/things/{thing_name}/jobs/{job_id}/get/rejected")
+}
 
 #[must_use]
 #[inline(always)]
@@ -391,6 +487,10 @@ fn start_next_rejected(thing_name: &str) -> String {
     format!("$aws/things/{thing_name}/jobs/start-next/rejected")
 }
 
+/// Generates a random token string.
+///
+/// # Returns
+/// A random token string consisting of 16 alphanumeric characters.
 #[must_use]
 #[inline(always)]
 fn token() -> String {

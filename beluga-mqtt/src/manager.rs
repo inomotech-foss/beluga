@@ -120,7 +120,7 @@ impl Drop for SubscriberManager {
         // Attempts to send a close signal to the subscriber manager's close
         // channel.
         if let Some(close_tx) = self.close_tx.take() {
-            // there is an possibility that polling didn't started yet.
+            // there is an possibility that polling didn't start yet.
             let _ = close_tx.try_send(());
         }
     }
