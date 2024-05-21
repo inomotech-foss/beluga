@@ -12,6 +12,10 @@ pub enum Error {
     JobIdMissing,
     #[error("the job version missing")]
     JobVersion,
+    #[error("the job with ID \"{0}\" is missing execution information")]
+    JobExecutionMissing(String),
+    #[error("request to get job with ID \"{0}\" was rejected")]
+    GetJobRejected(String),
     #[error("request to get jobs was rejected")]
     GetJobsRejected,
     #[error("request to start the next job from the queue was rejected")]

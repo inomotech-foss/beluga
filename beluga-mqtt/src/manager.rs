@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use rumqttc::Publish;
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio::sync::mpsc;
-use tracing::warn;
 
 #[derive(Debug)]
 pub(super) struct SubscriberManager {
@@ -119,12 +118,10 @@ impl SubscriberManager {
 impl Drop for SubscriberManager {
     fn drop(&mut self) {
         // Attempts to send a close signal to the subscriber manager's close
-        // channel. If the send operation fails, a warning is logged
-        // with the error.
+        // channel.
         if let Some(close_tx) = self.close_tx.take() {
-            if let Err(err) = close_tx.try_send(()) {
-                warn!(error = %err, "failed to close subscriber manager");
-            }
+            // there is an possibility that polling didn't start yet.
+            let _ = close_tx.try_send(());
         }
     }
 }

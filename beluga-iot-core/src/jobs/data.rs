@@ -151,17 +151,17 @@ pub(super) struct StartNextPendingJobExecutionResp {
     #[serde(with = "datetime")]
     pub(super) timestamp: Option<chrono::DateTime<Utc>>,
     #[serde(rename = "clientToken")]
-    pub(super) token: String,
+    pub(super) token: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub(super) struct DescribeJobExecutionReq {
     /// The unique identifier assigned to this job when it was created.
     #[serde(rename = "jobId")]
-    pub(super) job_id: String,
+    pub(super) job_id: Option<String>,
     /// The name of the thing associated with the device.
     #[serde(rename = "thingName")]
-    pub(super) thing_name: String,
+    pub(super) thing_name: Option<String>,
     /// A number that identifies a job execution on a device. If not specified,
     /// the latest job execution is returned.
     #[serde(rename = "executionNumber")]
@@ -171,17 +171,17 @@ pub(super) struct DescribeJobExecutionReq {
     #[serde(rename = "includeJobDocument")]
     pub(super) include_job_doc: Option<bool>,
     #[serde(rename = "clientToken")]
-    pub(super) token: String,
+    pub(super) token: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(super) struct DescribeJobExecutionResp {
-    pub(super) execution: JobExecution,
+    pub(super) execution: Option<JobExecution>,
     #[serde(default)]
     #[serde(with = "datetime")]
     pub(super) timestamp: Option<chrono::DateTime<Utc>>,
     #[serde(rename = "clientToken")]
-    pub(super) token: String,
+    pub(super) token: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
