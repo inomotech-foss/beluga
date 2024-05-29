@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
         .thing_name(&tokio::fs::read_to_string("thing-name.in").await?)
         .build()?;
 
-    let mut jobs_client = JobsClient::new(client).await?;
+    let jobs_client = JobsClient::new(client).await?;
     let (_in_progress, queued) = jobs_client.get().await?;
 
     for mut job in queued {
