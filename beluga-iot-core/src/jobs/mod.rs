@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use beluga_mqtt::{MqttClient, QoS, Subscriber};
 use chrono::prelude::Utc;
@@ -19,12 +20,17 @@ use crate::Result;
 mod data;
 mod datetime;
 
+#[derive(Debug, Clone)]
+struct JobsClientInternal {
+    mqtt: MqttClient,
+    subscriber: Subscriber,
+}
+
 /// The `JobsClient` struct is responsible for interacting with AWS IoT Jobs
 /// through an MQTT client.
 #[derive(Debug, Clone)]
 pub struct JobsClient {
-    mqtt: MqttClient,
-    subscriber: Subscriber,
+    client: Arc<JobsClientInternal>,
 }
 
 impl JobsClient {
@@ -53,7 +59,9 @@ impl JobsClient {
             )
             .await?;
 
-        Ok(Self { mqtt, subscriber })
+        Ok(Self {
+            client: Arc::new(JobsClientInternal { mqtt, subscriber }),
+        })
     }
 
     /// Retrieves the job for the specified job ID.
@@ -64,18 +72,23 @@ impl JobsClient {
     /// # Returns
     /// A `Result` containing the `Job` struct with the job execution details,
     /// or an error if the request fails.
-    pub async fn job(&mut self, job_id: &str) -> Result<Job> {
-        let thing_name = self.mqtt.thing_name();
+    pub async fn job(&self, job_id: &str) -> Result<Job> {
+        let thing_name = self.client.mqtt.thing_name();
         let topics = &[
             get_job_accepted(thing_name, job_id),
             get_job_rejected(thing_name, job_id),
         ];
 
-        let mut subscriber = self.mqtt.subscribe_many(topics, QoS::AtLeastOnce).await?;
+        let mut subscriber = self
+            .client
+            .mqtt
+            .subscribe_many(topics, QoS::AtLeastOnce)
+            .await?;
 
         let res = async {
             let get_job_token = token();
-            self.mqtt
+            self.client
+                .mqtt
                 .publish(
                     format!("$aws/things/{thing_name}/jobs/{job_id}/get"),
                     QoS::AtLeastOnce,
@@ -99,7 +112,7 @@ impl JobsClient {
                             .map(JobInfo::from)
                             .ok_or(Error::JobExecutionMissing(job_id.to_owned()))?;
 
-                        return Ok(Job::new(info, self.mqtt.clone()));
+                        return Ok(Job::new(info, self.client.mqtt.clone()));
                     }
 
                     warn!(packet = ?packet, "token mismatch during job retrieval");
@@ -112,7 +125,7 @@ impl JobsClient {
         }
         .await;
 
-        self.mqtt.unsubscribe_many(topics).await?;
+        self.client.mqtt.unsubscribe_many(topics).await?;
 
         res
     }
@@ -122,7 +135,7 @@ impl JobsClient {
     ///
     /// # Returns
     /// A `Result` containing a vector of queued `Job` instances.
-    pub async fn queued_jobs(&mut self) -> Result<Vec<Job>> {
+    pub async fn queued_jobs(&self) -> Result<Vec<Job>> {
         let (_, queued_jobs) = self.get().await?;
         Ok(queued_jobs)
     }
@@ -132,7 +145,7 @@ impl JobsClient {
     ///
     /// # Returns
     /// A `Result` containing a vector of in-progress `Job` instances.
-    pub async fn progress_jobs(&mut self) -> Result<Vec<Job>> {
+    pub async fn progress_jobs(&self) -> Result<Vec<Job>> {
         let (progress_jobs, _) = self.get().await?;
         Ok(progress_jobs)
     }
@@ -154,11 +167,12 @@ impl JobsClient {
     /// # Returns
     /// A `Result` containing a tuple of vectors: the first vector contains
     /// in-progress jobs, and the second vector contains queued jobs.
-    pub async fn get(&mut self) -> Result<(Vec<Job>, Vec<Job>)> {
+    pub async fn get(&self) -> Result<(Vec<Job>, Vec<Job>)> {
         let get_jobs_token = token();
-        self.mqtt
+        self.client
+            .mqtt
             .publish(
-                format!("$aws/things/{}/jobs/get", self.mqtt.thing_name()).as_str(),
+                format!("$aws/things/{}/jobs/get", self.client.mqtt.thing_name()).as_str(),
                 QoS::AtLeastOnce,
                 false,
                 bytes::Bytes::copy_from_slice(&serde_json::to_vec(&GetPendingJobsExecutionReq {
@@ -168,9 +182,9 @@ impl JobsClient {
             .await?;
 
         loop {
-            let packet = self.subscriber.recv().await?;
+            let packet = self.client.subscriber.clone().recv().await?;
 
-            if packet.topic == get_accepted(self.mqtt.thing_name()) {
+            if packet.topic == get_accepted(self.client.mqtt.thing_name()) {
                 let GetPendingJobsExecutionResp {
                     in_progress_jobs,
                     queued_jobs,
@@ -181,17 +195,21 @@ impl JobsClient {
                     return Ok((
                         in_progress_jobs
                             .into_iter()
-                            .map(|summary| Job::new(JobInfo::from(summary), self.mqtt.clone()))
+                            .map(|summary| {
+                                Job::new(JobInfo::from(summary), self.client.mqtt.clone())
+                            })
                             .collect(),
                         queued_jobs
                             .into_iter()
-                            .map(|summary| Job::new(JobInfo::from(summary), self.mqtt.clone()))
+                            .map(|summary| {
+                                Job::new(JobInfo::from(summary), self.client.mqtt.clone())
+                            })
                             .collect(),
                     ));
                 }
 
                 warn!(packet = ?packet, "token mismatch during pending jobs retrieval");
-            } else if packet.topic == get_rejected(self.mqtt.thing_name()) {
+            } else if packet.topic == get_rejected(self.client.mqtt.thing_name()) {
                 return Err(Error::GetJobsRejected);
             }
 
@@ -215,11 +233,16 @@ impl JobsClient {
     /// # Returns
     /// A `Result` containing the new `Job` instance, or an error if the request
     /// is rejected.
-    pub async fn start_next(&mut self, details: Option<HashMap<String, String>>) -> Result<Job> {
+    pub async fn start_next(&self, details: Option<HashMap<String, String>>) -> Result<Job> {
         let start_next_job_token = token();
-        self.mqtt
+        self.client
+            .mqtt
             .publish(
-                format!("$aws/things/{}/jobs/start-next", self.mqtt.thing_name()).as_str(),
+                format!(
+                    "$aws/things/{}/jobs/start-next",
+                    self.client.mqtt.thing_name()
+                )
+                .as_str(),
                 QoS::AtLeastOnce,
                 false,
                 bytes::Bytes::copy_from_slice(&serde_json::to_vec(
@@ -233,18 +256,18 @@ impl JobsClient {
             .await?;
 
         loop {
-            let packet = self.subscriber.recv().await?;
+            let packet = self.client.subscriber.clone().recv().await?;
 
-            if packet.topic == start_next_accepted(self.mqtt.thing_name()) {
+            if packet.topic == start_next_accepted(self.client.mqtt.thing_name()) {
                 let StartNextPendingJobExecutionResp {
                     execution, token, ..
                 } = serde_json::from_slice::<StartNextPendingJobExecutionResp>(&packet.payload)?;
                 if token.is_some_and(|token| token == start_next_job_token) {
-                    return Ok(Job::new(JobInfo::from(execution), self.mqtt.clone()));
+                    return Ok(Job::new(JobInfo::from(execution), self.client.mqtt.clone()));
                 }
 
                 warn!(packet = ?packet, "token mismatch during next job execution start");
-            } else if packet.topic == start_next_rejected(self.mqtt.thing_name()) {
+            } else if packet.topic == start_next_rejected(self.client.mqtt.thing_name()) {
                 return Err(Error::GetJobsRejected);
             }
 
@@ -253,7 +276,7 @@ impl JobsClient {
     }
 }
 
-impl Drop for JobsClient {
+impl Drop for JobsClientInternal {
     fn drop(&mut self) {
         self.mqtt.schedule_unsubscribe_many([
             get_accepted(self.mqtt.thing_name()).as_str(),
@@ -266,7 +289,7 @@ impl Drop for JobsClient {
 
 /// The `Job` struct represents a job execution and provides methods for
 /// updating it's status.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Job {
     info: JobInfo,
     mqtt: MqttClient,
