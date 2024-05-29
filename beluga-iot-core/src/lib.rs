@@ -65,7 +65,7 @@ impl TunnelManager {
     /// Graceful shutdown of the tunnel manager.
     pub async fn shutdown(&mut self) {
         if let Some(cancel) = self.cancel_guard.take() {
-            cancel.disarm().cancelled_owned().await;
+            cancel.disarm().cancel();
         } else {
             warn!("manager is already shutdown");
         }
