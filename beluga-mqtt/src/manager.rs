@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use rumqttc::Publish;
-use tokio::sync::broadcast::{self, Receiver, Sender};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
+
+use crate::{Receiver, Result, Sender};
 
 #[derive(Debug)]
 pub(super) struct SubscriberManager {
-    subscribed: HashMap<String, Sender<Publish>>,
+    subscribed: HashMap<String, Sender>,
     unsubscribed: HashSet<String>,
     close_tx: Option<mpsc::Sender<()>>,
 }
@@ -37,13 +38,13 @@ impl SubscriberManager {
 
     /// Returns a reference to the `Sender` for the given topic, if the
     /// topic is currently subscribed.
-    pub(super) fn sender(&self, topic: &str) -> Option<&Sender<Publish>> {
+    pub(super) fn sender(&self, topic: &str) -> Option<&Sender> {
         self.subscribed.get(topic)
     }
 
     /// Returns a receiver for the given topic, if the topic is currently
     /// subscribed
-    pub(super) fn receiver(&self, topic: &str) -> Option<Receiver<Publish>> {
+    pub(super) fn receiver(&self, topic: &str) -> Option<Receiver> {
         self.subscribed.get(topic).map(|sender| sender.subscribe())
     }
 
@@ -61,19 +62,19 @@ impl SubscriberManager {
             .collect::<Vec<String>>()
     }
 
-    pub(super) fn subscribe(&mut self, topic: &str) -> Receiver<Publish> {
+    pub(super) fn subscribe(&mut self, topic: &str) -> Receiver {
         self.unsubscribed.remove(topic);
 
         if let Some(sender) = self.subscribed.get(topic) {
             sender.subscribe()
         } else {
-            let (tx, rx) = broadcast::channel::<Publish>(10);
+            let (tx, rx) = broadcast::channel::<Result<Publish>>(10);
             self.subscribed.insert(topic.to_owned(), tx);
             rx
         }
     }
 
-    pub(super) fn subscribe_many<Iter>(&mut self, topics: Iter) -> Vec<Receiver<Publish>>
+    pub(super) fn subscribe_many<Iter>(&mut self, topics: Iter) -> Vec<Receiver>
     where
         Iter: IntoIterator,
         Iter::Item: AsRef<str>,
@@ -112,6 +113,12 @@ impl SubscriberManager {
     /// Returns an iterator over the list of unsubscribed topics.
     pub(super) fn scheduled(&self) -> impl Iterator<Item = &str> {
         self.unsubscribed.iter().map(AsRef::as_ref)
+    }
+
+    /// Returns an iterator over the senders that have subscribed to this
+    /// manager.
+    pub(super) fn subscribers(&self) -> impl Iterator<Item = &Sender> {
+        self.subscribed.values()
     }
 }
 
@@ -231,6 +238,16 @@ mod tests {
         let scheduled: Vec<_> = manager.scheduled().collect();
         assert!(scheduled.contains(&"topic1"));
         assert!(scheduled.contains(&"topic2"));
+    }
+
+    #[test]
+    fn subscribers() {
+        let mut manager = SubscriberManager::new();
+        manager.subscribe("topic1");
+        manager.subscribe("topic2");
+
+        let subscribers: Vec<_> = manager.subscribers().collect();
+        assert_eq!(subscribers.len(), 2);
     }
 
     #[test]
