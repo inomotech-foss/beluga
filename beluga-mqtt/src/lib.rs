@@ -1,4 +1,4 @@
-use core::ops::DerefMut;
+use core::time::Duration;
 use std::sync::Arc;
 
 pub use error::Error;
@@ -53,6 +53,7 @@ pub struct MqttClientBuilder<'a> {
     certificate_authority: Option<&'a [u8]>,
     thing_name: Option<&'a str>,
     endpoint: Option<&'a str>,
+    keep_alive: Option<Duration>,
     port: u16,
 }
 
@@ -104,6 +105,13 @@ impl<'a> MqttClientBuilder<'a> {
         self
     }
 
+    /// Set number of seconds after which client should ping the broker
+    /// if there is no other data exchange
+    pub const fn keep_alive(mut self, time: Duration) -> Self {
+        self.keep_alive = Some(time);
+        self
+    }
+
     /// Builds an MQTT client with the configured options.
     pub fn build(self) -> Result<MqttClient> {
         let thing_name = self.thing_name.ok_or(Error::ThingName)?;
@@ -119,19 +127,27 @@ impl<'a> MqttClientBuilder<'a> {
             None,
         ));
 
+        if let Some(duration) = self.keep_alive {
+            options.set_keep_alive(duration);
+        }
+
         let (client, event_loop) = AsyncClient::new(options, 10);
         let (close_tx, close_rx) = mpsc::channel::<()>(1);
-        let manager = Arc::new(Mutex::new(SubscriberManager::with_close_tx(close_tx)));
-        tokio::spawn(poll(
+        let ctx = Arc::new(Mutex::new(MqttContext::new(
+            SubscriberManager::with_close_tx(close_tx),
+            None,
+        )));
+
+        tokio::spawn(poll(PollContext::new(
             client.clone(),
             event_loop,
             close_rx,
-            Arc::clone(&manager),
-        ));
+            ctx.clone(),
+        )));
 
         Ok(MqttClient {
             client,
-            manager,
+            ctx,
             thing_name: thing_name.to_owned(),
         })
     }
@@ -141,7 +157,7 @@ impl<'a> MqttClientBuilder<'a> {
 pub struct MqttClient {
     client: AsyncClient,
     thing_name: String,
-    manager: Arc<Mutex<SubscriberManager>>,
+    ctx: Arc<Mutex<MqttContext>>,
 }
 
 impl MqttClient {
@@ -156,13 +172,14 @@ impl MqttClient {
     /// A [Result] containing a [Subscriber] if the subscription is successful,
     /// otherwise an [Error].
     pub async fn subscribe(&self, topic: impl AsRef<str>, qos: QoS) -> Result<Subscriber> {
-        let mut manager = self.manager.lock().await;
+        let mut ctx = self.ctx.lock().await;
+        ctx.check_connection().await?;
 
-        if let Some(rx) = manager.receiver(topic.as_ref()) {
+        if let Some(rx) = ctx.manager.receiver(topic.as_ref()) {
             Ok(Subscriber(vec![rx]))
         } else {
             self.client.subscribe(topic.as_ref(), qos).await?;
-            Ok(Subscriber(vec![manager.subscribe(topic.as_ref())]))
+            Ok(Subscriber(vec![ctx.manager.subscribe(topic.as_ref())]))
         }
     }
 
@@ -182,9 +199,13 @@ impl MqttClient {
         Iter: IntoIterator,
         Iter::Item: AsRef<str>,
     {
-        let mut manager = self.manager.lock().await;
+        // This method checks the connection and locks the context. It is used
+        // to ensure the connection is valid before performing other
+        // operations on the context.
+        let mut ctx = self.ctx.lock().await;
+        ctx.check_connection().await?;
 
-        let new_topics = manager.subscribed_diff(topics);
+        let new_topics = ctx.manager.subscribed_diff(topics);
         self.client
             .subscribe_many(
                 new_topics
@@ -193,7 +214,7 @@ impl MqttClient {
             )
             .await?;
 
-        Ok(Subscriber(manager.subscribe_many(new_topics)))
+        Ok(Subscriber(ctx.manager.subscribe_many(new_topics)))
     }
 
     /// Publishes a message to the MQTT broker.
@@ -213,6 +234,8 @@ impl MqttClient {
         retain: bool,
         payload: bytes::Bytes,
     ) -> Result<()> {
+        self.ctx.lock().await.check_connection().await?;
+
         self.client
             .publish(topic.as_ref(), qos, retain, payload)
             .await
@@ -227,8 +250,11 @@ impl MqttClient {
     /// # Returns
     /// A [Result] indicating whether the unsubscription was successful.
     pub async fn unsubscribe(&self, topic: impl AsRef<str>) -> Result<()> {
+        let mut ctx = self.ctx.lock().await;
+        ctx.check_connection().await?;
+
         self.client.unsubscribe(topic.as_ref()).await?;
-        self.manager.lock().await.unsubscribe(topic.as_ref());
+        ctx.manager.unsubscribe(topic.as_ref());
         Ok(())
     }
 
@@ -240,11 +266,11 @@ impl MqttClient {
     /// # Arguments
     /// * `topic` - The topic name to unsubscribe from.
     pub fn schedule_unsubscribe(&self, topic: impl AsRef<str>) {
-        let manager = self.manager.clone();
+        let ctx = self.ctx.clone();
         let topic = topic.as_ref().to_owned();
 
         tokio::spawn(async move {
-            manager.lock().await.schedule_unsubscribe(&topic);
+            ctx.lock().await.manager.schedule_unsubscribe(&topic);
         });
     }
 
@@ -263,8 +289,11 @@ impl MqttClient {
         Iter::Item: AsRef<str>,
     {
         let _ = futures::future::try_join_all(topics.into_iter().map(|topic| async move {
+            let mut ctx = self.ctx.lock().await;
+            ctx.check_connection().await?;
+
             self.client.unsubscribe(topic.as_ref()).await?;
-            self.manager.lock().await.unsubscribe(topic.as_ref());
+            ctx.manager.unsubscribe(topic.as_ref());
             Result::Ok(())
         }))
         .await?;
@@ -284,14 +313,15 @@ impl MqttClient {
         Iter: IntoIterator,
         Iter::Item: AsRef<str>,
     {
-        let manager = self.manager.clone();
+        let ctx = self.ctx.clone();
+
         let topics = topics
             .into_iter()
             .map(|topic| topic.as_ref().to_owned())
             .collect::<Vec<_>>();
 
         tokio::spawn(async move {
-            manager.lock().await.schedule_unsubscribe_many(topics);
+            ctx.lock().await.manager.schedule_unsubscribe_many(topics);
         });
     }
 
@@ -301,19 +331,74 @@ impl MqttClient {
     }
 }
 
-/// Asynchronous function that handles polling the MQTT event loop.
-async fn poll(
+/// A struct that holds the context for an MQTT connection, including a
+/// subscriber manager and any connection errors that have occurred.
+#[derive(Debug)]
+struct MqttContext {
+    manager: SubscriberManager,
+    connection_err: Option<ConnectionError>,
+}
+
+impl MqttContext {
+    fn new(manager: SubscriberManager, connection_err: Option<ConnectionError>) -> Self {
+        Self {
+            manager,
+            connection_err,
+        }
+    }
+
+    /// Checks the connection status of the MQTT client.
+    ///
+    /// This function checks the connection status of the MQTT client by
+    /// inspecting the `connection_err` field. If the field is `None`, the
+    /// connection is considered successful and the function returns
+    /// `Ok(())`. If the field contains an error, the function returns the
+    /// error wrapped in an `Err`.
+    async fn check_connection(&mut self) -> Result<()> {
+        self.connection_err
+            .take()
+            .map_or_else(|| Ok(()), |err| Err(Error::from(err)))
+    }
+}
+
+/// It is a struct that holds the necessary components for polling
+/// the MQTT broker.
+struct PollContext {
     client: AsyncClient,
-    mut event_loop: EventLoop,
-    mut close_rx: mpsc::Receiver<()>,
-    manager: Arc<Mutex<SubscriberManager>>,
-) {
+    event_loop: EventLoop,
+    close_rx: mpsc::Receiver<()>,
+    mqtt_ctx: Arc<Mutex<MqttContext>>,
+}
+
+impl PollContext {
+    fn new(
+        client: AsyncClient,
+        event_loop: EventLoop,
+        close_rx: mpsc::Receiver<()>,
+        mqtt_ctx: Arc<Mutex<MqttContext>>,
+    ) -> Self {
+        Self {
+            client,
+            event_loop,
+            close_rx,
+            mqtt_ctx,
+        }
+    }
+}
+
+/// Asynchronous function that handles polling the MQTT event loop.
+async fn poll(mut ctx: PollContext) {
     loop {
         tokio::select! {
-            event = event_loop.poll() => {
-                process_event(&client, event, manager.lock().await.deref_mut()).await;
+            event = ctx.event_loop.poll() => {
+                // Handles an event by processing it and updating the connection error
+                // state if necessary.
+                if let Err(err) = process_event(event, &mut ctx).await {
+                    ctx.mqtt_ctx.lock().await.connection_err = Some(err);
+                    break;
+                }
             }
-            _ = close_rx.recv() => {
+            _ = ctx.close_rx.recv() => {
                 debug!("exit event poll loop");
                 break;
             }
@@ -323,14 +408,14 @@ async fn poll(
 
 /// Processes an MQTT event.
 async fn process_event(
-    client: &AsyncClient,
     event: std::result::Result<Event, ConnectionError>,
-    manager: &mut SubscriberManager,
-) {
+    ctx: &mut PollContext,
+) -> std::result::Result<(), ConnectionError> {
     match event {
         Ok(event) => {
             if let Event::Incoming(Packet::Publish(packet)) = event {
-                process_packet(packet, client, manager).await;
+                let mut mqtt_ctx = ctx.mqtt_ctx.lock().await;
+                process_packet(packet, &ctx.client, &mut mqtt_ctx.manager).await;
             }
         }
         Err(conn_err) => {
@@ -338,8 +423,11 @@ async fn process_event(
                 error = &conn_err as &dyn std::error::Error,
                 "connection error during polling"
             );
+            return Err(conn_err);
         }
     }
+
+    Ok(())
 }
 
 /// Processes a received MQTT packet.
