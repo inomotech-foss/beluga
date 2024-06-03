@@ -7,18 +7,20 @@ use rumqttc::{
     AsyncClient, ConnectionError, Event, EventLoop, MqttOptions, Packet, SubscribeFilter, Transport,
 };
 pub use rumqttc::{Publish, QoS};
-use tokio::sync::broadcast::Receiver;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error};
 
 pub type Result<T> = core::result::Result<T, Error>;
+
+type Sender = tokio::sync::broadcast::Sender<Result<Publish>>;
+type Receiver = tokio::sync::broadcast::Receiver<Result<Publish>>;
 
 mod error;
 mod manager;
 
 /// Represents an MQTT subscriber that can receive `Publish` messages.
 #[derive(Debug)]
-pub struct Subscriber(Vec<Receiver<Publish>>);
+pub struct Subscriber(Vec<Receiver>);
 
 impl Subscriber {
     /// Asynchronously receives a [`Publish`] message from one of
@@ -30,7 +32,8 @@ impl Subscriber {
                 .map(|receiver| Box::pin(async move { receiver.recv().await })),
         )
         .await;
-        packet.map_err(Error::from)
+
+        packet.map_err(Error::from)?
     }
 }
 
@@ -336,28 +339,21 @@ impl MqttClient {
 #[derive(Debug)]
 struct MqttContext {
     manager: SubscriberManager,
-    connection_err: Option<ConnectionError>,
+    error: Option<Error>,
 }
 
 impl MqttContext {
-    fn new(manager: SubscriberManager, connection_err: Option<ConnectionError>) -> Self {
-        Self {
-            manager,
-            connection_err,
-        }
+    fn new(manager: SubscriberManager, error: Option<Error>) -> Self {
+        Self { manager, error }
     }
 
-    /// Checks the connection status of the MQTT client.
+    /// Checks the connection status and returns an error if there is one.
     ///
-    /// This function checks the connection status of the MQTT client by
-    /// inspecting the `connection_err` field. If the field is `None`, the
-    /// connection is considered successful and the function returns
-    /// `Ok(())`. If the field contains an error, the function returns the
-    /// error wrapped in an `Err`.
+    /// This function checks the connection status of the MQTT client and
+    /// returns an error if there is one. If there is no error, it returns
+    /// `Ok(())`.
     async fn check_connection(&mut self) -> Result<()> {
-        self.connection_err
-            .take()
-            .map_or_else(|| Ok(()), |err| Err(Error::from(err)))
+        self.error.take().map_or_else(|| Ok(()), Err)
     }
 }
 
@@ -393,8 +389,19 @@ async fn poll(mut ctx: PollContext) {
             event = ctx.event_loop.poll() => {
                 // Handles an event by processing it and updating the connection error
                 // state if necessary.
-                if let Err(err) = process_event(event, &mut ctx).await {
-                    ctx.mqtt_ctx.lock().await.connection_err = Some(err);
+                if let Err(connection_err) = process_event(event, &mut ctx).await {
+                    let mut mqtt_ctx = ctx.mqtt_ctx.lock().await;
+
+                    // Sends an error to all subscribers of the MQTT subscription manager.
+                    //
+                    // When an error occurs in the MQTT connection, this code iterates through all
+                    // the subscribers in the MQTT  manager and sends the error to each one of them.
+                    let error = Error::from(connection_err);
+                    for tx in mqtt_ctx.manager.subscribers() {
+                        let _ = tx.send(Err(error.clone()));
+                    }
+
+                    mqtt_ctx.error = Some(error);
                     break;
                 }
             }
@@ -451,7 +458,7 @@ async fn process_packet(packet: Publish, client: &AsyncClient, manager: &mut Sub
     let topic = packet.topic.clone();
 
     if let Some(sender) = manager.sender(&topic) {
-        if let Err(err) = sender.send(packet) {
+        if let Err(err) = sender.send(Ok(packet)) {
             manager.unsubscribe(&topic);
             error!(error = &err as &dyn std::error::Error, topic = %topic, "couldn't provide packet for a subscriber")
         }
