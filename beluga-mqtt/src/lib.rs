@@ -402,7 +402,6 @@ async fn poll(mut ctx: PollContext) {
                     }
 
                     mqtt_ctx.error = Some(error);
-                    break;
                 }
             }
             _ = ctx.close_rx.recv() => {
