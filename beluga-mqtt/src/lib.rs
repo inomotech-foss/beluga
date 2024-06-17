@@ -7,7 +7,7 @@ use rumqttc::{
     AsyncClient, ConnectionError, Event, EventLoop, MqttOptions, Packet, SubscribeFilter, Transport,
 };
 pub use rumqttc::{Publish, QoS};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tracing::{debug, error};
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -26,11 +26,23 @@ impl Subscriber {
     /// Asynchronously receives a [`Publish`] message from one of
     /// the underlying receivers.
     pub async fn recv(&mut self) -> Result<Publish> {
-        let (packet, ..) = futures::future::select_all(
-            self.0
-                .iter_mut()
-                .map(|receiver| Box::pin(async move { receiver.recv().await })),
-        )
+        let (packet, ..) = futures::future::select_all(self.0.iter_mut().map(|receiver| {
+            Box::pin(async move {
+                // This loop continuously fetch the underlying receiver for
+                // new messages. If a message is available, it
+                // is returned. If no messages are available and the receiver
+                // has been lagged, the loop continues to the
+                // next iteration.
+                loop {
+                    let result = receiver.recv().await;
+                    if let Err(broadcast::error::RecvError::Lagged(_)) = result {
+                        continue;
+                    } else {
+                        return result;
+                    }
+                }
+            })
+        }))
         .await;
 
         packet.map_err(Error::from)?
