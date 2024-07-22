@@ -13,6 +13,7 @@ beluga-mqtt.workspace = true
 beluga-tunnel.workspace = true
 beluga-ssh-service.workspace = true
 bytes.workspace = true
+ciborium = { workspace = true, optional = true }
 chrono = { workspace = true, features = ["serde"] }
 rand.workspace = true
 futures.workspace = true
@@ -33,3 +34,6 @@ rcgen.workspace = true
 time.workspace = true
 tracing-subscriber.workspace = true
 
+[features]
+default = []
+cbor = ["dep:ciborium"]

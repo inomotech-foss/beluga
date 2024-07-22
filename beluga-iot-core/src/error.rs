@@ -1,3 +1,5 @@
+use crate::provision::ProvisionError;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -22,4 +24,18 @@ pub enum Error {
     StartNextJobRequestRejected,
     #[error("request to update job with ID \"{0}\" was rejected")]
     UpdateJobRequestRejected(String),
+    #[cfg(feature = "cbor")]
+    #[error(transparent)]
+    Cbor(#[from] CborError),
+    #[error(transparent)]
+    Provision(#[from] ProvisionError),
+}
+
+#[cfg(feature = "cbor")]
+#[derive(Debug, thiserror::Error)]
+pub enum CborError {
+    #[error(transparent)]
+    Serialize(#[from] ciborium::ser::Error<std::io::Error>),
+    #[error(transparent)]
+    Deserialize(#[from] ciborium::de::Error<std::io::Error>),
 }
