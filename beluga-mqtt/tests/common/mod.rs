@@ -10,7 +10,7 @@ use rcgen::{
     KeyUsagePurpose, SanType,
 };
 use rumqttd::{
-    Broker, Config, ConnectionSettings, RouterConfig, ServerSettings, ShutdownHandler, TlsConfig,
+    Broker, BrokerHandler, Config, ConnectionSettings, RouterConfig, ServerSettings, TlsConfig,
 };
 use time::{Duration, OffsetDateTime};
 
@@ -68,7 +68,7 @@ pub fn signed_cert(ca: &Certificate, ca_key: &KeyPair) -> anyhow::Result<(Certif
     Ok((cert, key))
 }
 
-pub fn mqtt_server(ca: String, certpath: String, keypath: String, port: u16) -> ShutdownHandler {
+pub fn mqtt_server(ca: String, certpath: String, keypath: String, port: u16) -> BrokerHandler {
     let settings = ServerSettings {
         name: "mqtt-server".to_owned(),
         listen: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port)),
@@ -103,13 +103,7 @@ pub fn mqtt_server(ca: String, certpath: String, keypath: String, port: u16) -> 
         ..Default::default()
     };
 
-    let mut broker = Broker::new(config);
-    let handler = broker.shutdown_handler();
-    std::thread::spawn(move || {
-        broker.start().unwrap();
-    });
-
-    handler
+    Broker::new(config).start().unwrap()
 }
 
 pub fn client(

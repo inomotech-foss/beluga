@@ -7,6 +7,7 @@ use tracing::{debug, warn};
 
 mod error;
 mod jobs;
+pub mod provision;
 
 pub use jobs::{Job, JobStatus, JobsClient};
 

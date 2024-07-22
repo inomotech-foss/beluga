@@ -7,6 +7,7 @@ authors = [
     "Silvestr Predko <silvestr1994@gmail.com>",
     "Simon Berger <simon.berger@inomotech.com>",
 ]
+version = "0.2.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.74"
@@ -14,18 +15,31 @@ repository = "https://github.com/inomotech-foss/beluga"
 publish = false
 
 [workspace.dependencies]
+anyhow = "1"
 beluga-mqtt = { path = "beluga-mqtt" }
 beluga-ssh-service = { path = "beluga-ssh-service" }
 beluga-tunnel = { path = "beluga-tunnel" }
 bytes = "1"
 chrono = "0.4"
+ciborium = "0.2"
 rumqttc = "0.24"
-prost = "0.12"
+rustls = "0.23"
+rcgen = "0.13"
+prost = "0.13"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 futures = "0.3"
+tempfile = "3"
+time = "0.3"
 thiserror = "1"
+tokio-tungstenite = { version = "0.23", default-features = false }
 tokio = { version = "1", default-features = false, features = ["full"] }
 tokio-util = "0.7"
 tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[workspace.dependencies.rumqttd]
+git = "https://github.com/inomotech-foss/rumqtt.git"
+rev = "d39e1490831c41c90a12705b2a84df9b1a327ff6"
+features = ["verify-client-cert"]

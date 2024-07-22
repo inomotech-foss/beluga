@@ -1,6 +1,6 @@
 [package]
 name = "beluga-ssh-service"
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ publish.workspace = true
 
 [dependencies]
 bytes.workspace = true
-beluga-tunnel = { path = "../beluga-tunnel" }
+beluga-tunnel.workspace = true
 
 [dependencies.tokio]
 workspace = true
