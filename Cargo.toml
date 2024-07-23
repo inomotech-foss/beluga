@@ -22,15 +22,18 @@ beluga-tunnel = { path = "beluga-tunnel" }
 bytes = "1"
 chrono = "0.4"
 ciborium = "0.2"
+futures = "0.3"
+itertools = "0.13"
+petname = "2"
+prost = "0.13"
+rand = "0.8"
 rumqttc = "0.24"
 rustls = "0.23"
 rcgen = "0.13"
-prost = "0.13"
-rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-futures = "0.3"
 tempfile = "3"
+toml = "0.8"
 time = "0.3"
 thiserror = "1"
 tokio-tungstenite = { version = "0.23", default-features = false }
@@ -38,6 +41,7 @@ tokio = { version = "1", default-features = false, features = ["full"] }
 tokio-util = "0.7"
 tracing = "0.1"
 tracing-subscriber = "0.3"
+uuid = "1"
 
 [workspace.dependencies.rumqttd]
 git = "https://github.com/inomotech-foss/rumqtt.git"
