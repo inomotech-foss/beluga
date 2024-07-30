@@ -30,10 +30,10 @@ pub use data::{DeviceCertificateInfo, ProvisionError, RegisterThingResponse};
 /// accepted, or a `ProvisionError` if the request is rejected.
 pub async fn create_keys_and_certificate(client: MqttClient) -> Result<DeviceCertificateInfo> {
     let mut accepted = client
-        .subscribe(topic::CREATE_KEYS_AND_CERT_ACCEPTED, QoS::AtLeastOnce)
+        .subscribe_owned(topic::CREATE_KEYS_AND_CERT_ACCEPTED, QoS::AtLeastOnce)
         .await?;
     let mut rejected = client
-        .subscribe(topic::CREATE_KEYS_AND_CERT_REJECTED, QoS::AtLeastOnce)
+        .subscribe_owned(topic::CREATE_KEYS_AND_CERT_REJECTED, QoS::AtLeastOnce)
         .await?;
 
     client
@@ -77,10 +77,10 @@ pub async fn create_certificate_from_csr(
     csr: String,
 ) -> Result<DeviceCertificateInfo> {
     let mut accepted = client
-        .subscribe(topic::CREATE_FROM_CSR_ACCEPTED, QoS::AtLeastOnce)
+        .subscribe_owned(topic::CREATE_FROM_CSR_ACCEPTED, QoS::AtLeastOnce)
         .await?;
     let mut rejected = client
-        .subscribe(topic::CREATE_FROM_CSR_REJECTED, QoS::AtLeastOnce)
+        .subscribe_owned(topic::CREATE_FROM_CSR_REJECTED, QoS::AtLeastOnce)
         .await?;
 
     client
@@ -125,14 +125,14 @@ pub async fn register_thing<Iter: IntoIterator<Item = (String, String)>>(
     parameters: Option<Iter>,
 ) -> Result<RegisterThingResponse> {
     let mut accepted = client
-        .subscribe(
+        .subscribe_owned(
             topic::register_thing_accepted(template_name.as_ref()),
             QoS::AtLeastOnce,
         )
         .await?;
 
     let mut rejected = client
-        .subscribe(
+        .subscribe_owned(
             topic::register_thing_rejected(template_name.as_ref()),
             QoS::AtLeastOnce,
         )
@@ -233,6 +233,7 @@ mod payload {
     use super::*;
     use crate::error::CborError;
 
+    #[allow(clippy::result_large_err)]
     pub(super) fn to_bytes<T>(value: &T) -> Result<Bytes>
     where
         T: ?Sized + Serialize,
@@ -242,6 +243,7 @@ mod payload {
         Ok(writer.into_inner().freeze())
     }
 
+    #[allow(clippy::result_large_err)]
     pub(super) fn from_bytes<T: DeserializeOwned>(buf: Bytes) -> Result<T> {
         let value = ciborium::from_reader(buf.reader()).map_err(CborError::from)?;
         Ok(value)
@@ -252,6 +254,7 @@ mod payload {
 mod payload {
     use super::*;
 
+    #[allow(clippy::result_large_err)]
     pub(super) fn to_bytes<T>(value: &T) -> Result<Bytes>
     where
         T: ?Sized + Serialize,
@@ -261,6 +264,7 @@ mod payload {
         Ok(writer.into_inner().freeze())
     }
 
+    #[allow(clippy::result_large_err)]
     pub(super) fn from_bytes<T: DeserializeOwned>(buf: Bytes) -> Result<T> {
         Ok(serde_json::from_reader(buf.reader())?)
     }
