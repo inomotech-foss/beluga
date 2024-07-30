@@ -1,4 +1,5 @@
-use beluga_aws_sdk::{details, JobStatus, JobsClient};
+use anyhow::Context;
+use beluga_aws_sdk::{JobStatus, JobsClient};
 use beluga_mqtt::MqttClientBuilder;
 use tracing::{info, Level};
 
@@ -17,14 +18,13 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 
     let jobs_client = JobsClient::new(client).await?;
-    let mut job = jobs_client.job("id1").await?;
+    let mut next_job = jobs_client
+        .start_next(None)
+        .await?
+        .context("No pending jobs")?;
 
-    let _ = job.document().unwrap();
-    job.update_with_details(JobStatus::InProgress, details! { "name" => "device" })
-        .await?;
+    info!("Next Job {next_job:?}");
 
-    let job = jobs_client.job("id1").await?;
-    info!("Name: {}", job.details().unwrap()["name"]);
-
+    next_job.update(JobStatus::Succeeded).await?;
     Ok(())
 }
