@@ -13,6 +13,24 @@ pub use jobs::{Job, JobStatus, JobsClient};
 
 type Result<T> = std::result::Result<T, Error>;
 
+/// Creates a details `HashMap` from a list of key-value pairs.
+///
+/// This macro takes a list of key-value pairs and returns a `HashMap` with the
+/// provided keys and values. The keys and values are converted to `String`
+/// instances before being added to the `HashMap`.
+///
+/// # Example
+///
+/// let details = details! {
+///     "serial" => "01234567",
+/// };
+#[macro_export]
+macro_rules! details {
+    {$($k: expr => $v: expr),* $(,)?} => {
+        ::std::collections::HashMap::<String, String>::from([$(($k.to_owned(), $v.to_owned()),)*])
+    };
+}
+
 pub struct TunnelManager {
     task_tracker: TaskTracker,
     cancel_guard: Option<DropGuard>,
