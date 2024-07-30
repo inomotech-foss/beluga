@@ -3,22 +3,38 @@ use std::sync::Arc;
 pub use rumqttc::{ClientError, ConnectionError};
 use tokio::sync::broadcast::error::RecvError;
 
+/// An error that can occur when using the Beluga MQTT client.
+///
+/// This enum represents the various errors that can occur when working with the
+/// Beluga MQTT client. It includes errors related to missing configuration,
+/// connection issues, and MQTT-specific errors.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
+    /// The MQTT endpoint is missing.
     #[error("missing endpoint")]
     Endpoint,
+    /// The thing name is missing.
     #[error("missing thing name")]
     ThingName,
+    /// The certificate is missing.
     #[error("missing certificate")]
     Certificate,
+    /// The private key is missing.
     #[error("missing private key")]
     PrivateKey,
+    /// The certificate authority (CA) is missing.
     #[error("missing authority")]
     Ca,
+    /// The subscriber doesn't contain any receivers.
+    #[error("subscriber doesn't contain any receivers")]
+    EmptySubscriber,
+    /// An error occurred while connecting to the MQTT broker.
     #[error(transparent)]
     ConnectionError(Arc<ConnectionError>),
+    /// An error occurred while interacting with the MQTT client.
     #[error(transparent)]
     Mqtt(Arc<ClientError>),
+    /// An error occurred while receiving data from the MQTT broker.
     #[error(transparent)]
     Receive(#[from] RecvError),
 }

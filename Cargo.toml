@@ -7,7 +7,7 @@ authors = [
     "Silvestr Predko <silvestr1994@gmail.com>",
     "Simon Berger <simon.berger@inomotech.com>",
 ]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.74"
@@ -32,6 +32,7 @@ rustls = "0.23"
 rcgen = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+strum = { version = "0.26", features = ["derive"] }
 tempfile = "3"
 toml = "0.8"
 time = "0.3"

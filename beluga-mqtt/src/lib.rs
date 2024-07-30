@@ -1,14 +1,17 @@
 use core::time::Duration;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub use error::Error;
 use manager::SubscriberManager;
 use rumqttc::{
-    AsyncClient, ConnectionError, Event, EventLoop, MqttOptions, Packet, SubscribeFilter, Transport,
+    AsyncClient, ConnectionError, Event, EventLoop, MqttOptions, Packet, StateError,
+    SubscribeFilter, Transport,
 };
 pub use rumqttc::{Publish, QoS};
-use tokio::sync::{broadcast, mpsc, Mutex};
-use tracing::{debug, error};
+pub use subscriber::{OwnedSubscriber, Subscriber};
+use tokio::sync::{mpsc, Mutex};
+use tracing::{debug, error, warn};
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -17,48 +20,7 @@ type Receiver = tokio::sync::broadcast::Receiver<Result<Publish>>;
 
 mod error;
 mod manager;
-
-/// Represents an MQTT subscriber that can receive `Publish` messages.
-#[derive(Debug)]
-pub struct Subscriber(Vec<Receiver>);
-
-impl Subscriber {
-    /// Asynchronously receives a [`Publish`] message from one of
-    /// the underlying receivers.
-    pub async fn recv(&mut self) -> Result<Publish> {
-        let (packet, ..) = futures::future::select_all(self.0.iter_mut().map(|receiver| {
-            Box::pin(async move {
-                // This loop continuously fetch the underlying receiver for
-                // new messages. If a message is available, it
-                // is returned. If no messages are available and the receiver
-                // has been lagged, the loop continues to the
-                // next iteration.
-                loop {
-                    let result = receiver.recv().await;
-                    if let Err(broadcast::error::RecvError::Lagged(_)) = result {
-                        continue;
-                    } else {
-                        return result;
-                    }
-                }
-            })
-        }))
-        .await;
-
-        packet.map_err(Error::from)?
-    }
-}
-
-impl Clone for Subscriber {
-    fn clone(&self) -> Self {
-        Self(
-            self.0
-                .iter()
-                .map(|receiver| receiver.resubscribe())
-                .collect(),
-        )
-    }
-}
+mod subscriber;
 
 /// A builder for creating an `MqttClient` with specific configurations.
 #[derive(Debug, Default)]
@@ -69,6 +31,7 @@ pub struct MqttClientBuilder<'a> {
     thing_name: Option<&'a str>,
     endpoint: Option<&'a str>,
     keep_alive: Option<Duration>,
+    subscriber_capacity: usize,
     port: u16,
 }
 
@@ -80,6 +43,7 @@ impl<'a> MqttClientBuilder<'a> {
     pub fn new() -> Self {
         Self {
             port: 8883,
+            subscriber_capacity: 10,
             ..Default::default()
         }
     }
@@ -127,6 +91,15 @@ impl<'a> MqttClientBuilder<'a> {
         self
     }
 
+    /// Sets the maximum capacity for a [`Subscriber`] receiver channel.
+    /// This allows controlling the buffer size for incoming messages to
+    /// subscribers. A larger buffer can prevent message loss, but may
+    /// consume more memory.
+    pub const fn subscriber_capacity(mut self, size: usize) -> Self {
+        self.subscriber_capacity = size;
+        self
+    }
+
     /// Builds an MQTT client with the configured options.
     pub fn build(self) -> Result<MqttClient> {
         let thing_name = self.thing_name.ok_or(Error::ThingName)?;
@@ -149,7 +122,7 @@ impl<'a> MqttClientBuilder<'a> {
         let (client, event_loop) = AsyncClient::new(options, 10);
         let (close_tx, close_rx) = mpsc::channel::<()>(1);
         let ctx = Arc::new(Mutex::new(MqttContext::new(
-            SubscriberManager::with_close_tx(close_tx),
+            SubscriberManager::with_close_tx(close_tx, self.subscriber_capacity),
             None,
         )));
 
@@ -190,11 +163,60 @@ impl MqttClient {
         let mut ctx = self.ctx.lock().await;
         ctx.check_connection().await?;
 
+        if ctx.manager.scheduled().contains(topic.as_ref()) {
+            warn!(
+                "topic \"{}\" is already scheduled for unsubscription",
+                topic.as_ref()
+            );
+        }
+
         if let Some(rx) = ctx.manager.receiver(topic.as_ref()) {
             Ok(Subscriber(vec![rx]))
         } else {
             self.client.subscribe(topic.as_ref(), qos).await?;
             Ok(Subscriber(vec![ctx.manager.subscribe(topic.as_ref())]))
+        }
+    }
+
+    /// Subscribes to a given MQTT topic with the specified Quality of Service
+    /// [QoS] level and returns an [OwnedSubscriber] that can be used to receive
+    /// published messages.
+    ///
+    /// # Arguments
+    /// - `topic`: A string slice representing the topic to subscribe to.
+    /// - `qos`: The Quality of Service level for the subscription.
+    ///
+    /// # Returns
+    /// A [Result] containing an [OwnedSubscriber] if the subscription is
+    /// successful, otherwise an [Error].
+    pub async fn subscribe_owned(
+        &self,
+        topic: impl AsRef<str>,
+        qos: QoS,
+    ) -> Result<OwnedSubscriber> {
+        let mut ctx = self.ctx.lock().await;
+        ctx.check_connection().await?;
+
+        if ctx.manager.scheduled().contains(topic.as_ref()) {
+            warn!(
+                "topic \"{}\" is already scheduled for unsubscription",
+                topic.as_ref()
+            );
+        }
+
+        if let Some(rx) = ctx.manager.receiver(topic.as_ref()) {
+            Ok(OwnedSubscriber {
+                subscriber: Subscriber(vec![rx]),
+                topics: vec![topic.as_ref().to_owned()],
+                mqtt: self.clone(),
+            })
+        } else {
+            self.client.subscribe(topic.as_ref(), qos).await?;
+            Ok(OwnedSubscriber {
+                subscriber: Subscriber(vec![ctx.manager.subscribe(topic.as_ref())]),
+                topics: vec![topic.as_ref().to_owned()],
+                mqtt: self.clone(),
+            })
         }
     }
 
@@ -220,7 +242,14 @@ impl MqttClient {
         let mut ctx = self.ctx.lock().await;
         ctx.check_connection().await?;
 
-        let new_topics = ctx.manager.subscribed_diff(topics);
+        let mut new_topics = ctx.manager.subscribed_diff(topics);
+        if new_topics.is_empty() {
+            return Err(Error::ConnectionError(Arc::new(
+                ConnectionError::MqttState(StateError::EmptySubscription),
+            )));
+        }
+        warn_if_topics_scheduled(ctx.manager.scheduled(), &mut new_topics);
+
         self.client
             .subscribe_many(
                 new_topics
@@ -230,6 +259,55 @@ impl MqttClient {
             .await?;
 
         Ok(Subscriber(ctx.manager.subscribe_many(new_topics)))
+    }
+
+    /// Subscribes to multiple MQTT topics with the specified Quality of Service
+    /// [QoS] level and returns an [OwnedSubscriber] that can be used to receive
+    /// published messages.
+    ///
+    /// # Arguments
+    /// - `topics`: An iterator of topic strings to subscribe to.
+    /// - `qos`: The Quality of Service level for the subscriptions.
+    ///
+    /// # Returns
+    /// A [Result] containing an [OwnedSubscriber] if the subscriptions are
+    /// successful, otherwise an [Error].
+    pub async fn subscribe_many_owned<Iter>(
+        &self,
+        topics: Iter,
+        qos: QoS,
+    ) -> Result<OwnedSubscriber>
+    where
+        Iter: IntoIterator,
+        Iter::Item: AsRef<str>,
+    {
+        // This method checks the connection and locks the context. It is used
+        // to ensure the connection is valid before performing other
+        // operations on the context.
+        let mut ctx = self.ctx.lock().await;
+        ctx.check_connection().await?;
+
+        let mut new_topics = ctx.manager.subscribed_diff(topics);
+        if new_topics.is_empty() {
+            return Err(Error::ConnectionError(Arc::new(
+                ConnectionError::MqttState(StateError::EmptySubscription),
+            )));
+        }
+        warn_if_topics_scheduled(ctx.manager.scheduled(), &mut new_topics);
+
+        self.client
+            .subscribe_many(
+                new_topics
+                    .iter()
+                    .map(|topic| SubscribeFilter::new(topic.to_owned(), qos)),
+            )
+            .await?;
+
+        Ok(OwnedSubscriber {
+            subscriber: Subscriber(ctx.manager.subscribe_many(&new_topics)),
+            topics: new_topics,
+            mqtt: self.clone(),
+        })
     }
 
     /// Publishes a message to the MQTT broker.
@@ -346,6 +424,22 @@ impl MqttClient {
     }
 }
 
+/// Warns the user if any of the new topics being subscribed to are already
+/// scheduled for unsubscription.
+///
+/// This function checks if any of the new topics being subscribed to are
+/// already scheduled for unsubscription. If so, it logs a warning message
+/// with the list of topics that are already scheduled.
+fn warn_if_topics_scheduled(scheduled: &HashSet<String>, new_topics: &mut [String]) {
+    if new_topics.iter_mut().any(|topic| scheduled.contains(topic)) {
+        let topics = new_topics
+            .iter_mut()
+            .filter(|topic| scheduled.contains(*topic))
+            .collect::<Vec<_>>();
+        warn!("some of topics \"{topics:?}\" is already scheduled for unsubscription");
+    }
+}
+
 /// A struct that holds the context for an MQTT connection, including a
 /// subscriber manager and any connection errors that have occurred.
 #[derive(Debug)]
@@ -454,6 +548,7 @@ async fn process_packet(packet: Publish, client: &AsyncClient, manager: &mut Sub
     // unsubscription.
     let removed_topics = manager
         .scheduled()
+        .iter()
         .filter_map(|topic| {
             client
                 .try_unsubscribe(topic)
@@ -470,7 +565,8 @@ async fn process_packet(packet: Publish, client: &AsyncClient, manager: &mut Sub
 
     if let Some(sender) = manager.sender(&topic) {
         if let Err(err) = sender.send(Ok(packet)) {
-            manager.unsubscribe(&topic);
+            // let's try to unsubscribe in case of error
+            manager.schedule_unsubscribe(&topic);
             error!(error = &err as &dyn std::error::Error, topic = %topic, "couldn't provide packet for a subscriber")
         }
     }
