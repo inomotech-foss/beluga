@@ -5,34 +5,63 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::{Receiver, Result, Sender};
 
+const HALF_USIZE_MAX: usize = usize::MAX / 2;
+const HALF_PLUS_ONE: usize = usize::MAX / 2 + 1;
+
 #[derive(Debug)]
 pub(super) struct SubscriberManager {
     subscribed: HashMap<String, Sender>,
     unsubscribed: HashSet<String>,
     close_tx: Option<mpsc::Sender<()>>,
+    channel_capacity: usize,
 }
 
 impl SubscriberManager {
-    /// Creates a new `Manager` instance with no `close_tx` channel sender.
-    /// The `close_tx` channel is used to signal when the manager should be
-    /// closed. By default, the `close_tx` channel is set to `None`.
+    /// Creates a new [`SubscriberManager`] instance with the provided
+    /// `capacity`. The `capacity` parameter sets the capacity of the
+    /// broadcast channels used to distribute messages to subscribers. If
+    /// `capacity` is 0, it is set to 1. If `capacity` is between 0 and
+    /// `usize::MAX / 2`, it is used as is. If `capacity` is between
+    /// `usize::MAX / 2 + 1` and `usize::MAX`, it is set to `usize::MAX /
+    /// 2`.
     #[allow(dead_code)]
-    pub(super) fn new() -> Self {
+    pub(super) fn new(capacity: usize) -> Self {
+        let capacity = match capacity {
+            0 => 1,
+            capacity @ 0..=HALF_USIZE_MAX => capacity,
+            HALF_PLUS_ONE..=usize::MAX => HALF_USIZE_MAX,
+            _ => HALF_USIZE_MAX,
+        };
+
         Self {
             subscribed: HashMap::default(),
             unsubscribed: HashSet::default(),
+            channel_capacity: capacity,
             close_tx: None,
         }
     }
 
-    /// Creates a new `Manager` instance with the provided `close_tx` channel
-    /// sender. The `close_tx` channel is used to signal when the manager
-    /// should be closed.
-    pub(super) fn with_close_tx(close_tx: mpsc::Sender<()>) -> Self {
+    /// Creates a new `SubscriberManager` instance with the provided `close_tx`
+    /// and `capacity`. The `close_tx` parameter is a channel sender that
+    /// can be used to signal the manager to close. The `capacity` parameter
+    /// sets the capacity of the broadcast channels used to distribute
+    /// messages to subscribers. If `capacity` is 0, it is set to 1. If
+    /// `capacity` is between 0 and `usize::MAX / 2`, it is used as is. If
+    /// `capacity` is between `usize::MAX / 2 + 1` and `usize::MAX`, it is
+    /// set to `usize::MAX / 2`.
+    pub(super) fn with_close_tx(close_tx: mpsc::Sender<()>, capacity: usize) -> Self {
+        let capacity = match capacity {
+            0 => 1,
+            capacity @ 0..=HALF_USIZE_MAX => capacity,
+            HALF_PLUS_ONE..=usize::MAX => HALF_USIZE_MAX,
+            _ => HALF_USIZE_MAX,
+        };
+
         Self {
             close_tx: Some(close_tx),
             subscribed: HashMap::default(),
             unsubscribed: HashSet::default(),
+            channel_capacity: capacity,
         }
     }
 
@@ -68,7 +97,7 @@ impl SubscriberManager {
         if let Some(sender) = self.subscribed.get(topic) {
             sender.subscribe()
         } else {
-            let (tx, rx) = broadcast::channel::<Result<Publish>>(10);
+            let (tx, rx) = broadcast::channel::<Result<Publish>>(self.channel_capacity);
             self.subscribed.insert(topic.to_owned(), tx);
             rx
         }
@@ -110,15 +139,22 @@ impl SubscriberManager {
         }
     }
 
-    /// Returns an iterator over the list of unsubscribed topics.
-    pub(super) fn scheduled(&self) -> impl Iterator<Item = &str> {
-        self.unsubscribed.iter().map(AsRef::as_ref)
+    /// Returns a reference to the set of topics that have been scheduled for
+    /// unsubscription.
+    pub(super) fn scheduled(&self) -> &HashSet<String> {
+        &self.unsubscribed
     }
 
     /// Returns an iterator over the senders that have subscribed to this
     /// manager.
     pub(super) fn subscribers(&self) -> impl Iterator<Item = &Sender> {
         self.subscribed.values()
+    }
+
+    #[allow(dead_code)]
+    /// Returns the capacity of the channel used by this subscriber manager.
+    pub(super) const fn capacity(&self) -> usize {
+        self.channel_capacity
     }
 }
 
@@ -139,14 +175,14 @@ mod tests {
 
     #[test]
     fn default_state() {
-        let manager = SubscriberManager::new();
+        let manager = SubscriberManager::new(1);
         assert!(manager.subscribed.is_empty());
         assert!(manager.unsubscribed.is_empty());
     }
 
     #[test]
     fn subscribe() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let topic = "topic";
 
         let _receiver = manager.subscribe(topic);
@@ -158,7 +194,7 @@ mod tests {
 
     #[test]
     fn subscribe_existing() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let topic = "topic";
 
         let _ = manager.subscribe(topic);
@@ -170,7 +206,7 @@ mod tests {
 
     #[test]
     fn unsubscribe() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let topic = "topic";
 
         manager.subscribe(topic);
@@ -182,7 +218,7 @@ mod tests {
 
     #[test]
     fn schedule_unsubscribe() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let topic = "topic";
 
         manager.subscribe(topic);
@@ -194,7 +230,7 @@ mod tests {
 
     #[test]
     fn subscribed_diff() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         manager.subscribe_many(["topic1", "topic2", "topic3"]);
         let diff = manager.subscribed_diff(["topic4", "topic5", "topic2"]);
         assert_eq!(diff, ["topic4", "topic5"]);
@@ -202,7 +238,7 @@ mod tests {
 
     #[test]
     fn subscribed_diff_empty() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         manager.subscribe_many(["topic1", "topic2", "topic3"]);
         let diff = manager.subscribed_diff(["topic2", "topic3"]);
         assert!(diff.is_empty());
@@ -210,7 +246,7 @@ mod tests {
 
     #[test]
     fn receiver() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let topic = "topic";
         manager.subscribe(topic);
         let receiver = manager.receiver(topic);
@@ -219,7 +255,7 @@ mod tests {
 
     #[test]
     fn schedule_unsubscribe_many() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
 
         manager.subscribe("topic1");
         manager.subscribe("topic2");
@@ -231,18 +267,18 @@ mod tests {
 
     #[test]
     fn scheduled() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         manager.schedule_unsubscribe("topic1");
         manager.schedule_unsubscribe("topic2");
 
-        let scheduled: Vec<_> = manager.scheduled().collect();
-        assert!(scheduled.contains(&"topic1"));
-        assert!(scheduled.contains(&"topic2"));
+        let scheduled = manager.scheduled();
+        assert!(scheduled.contains("topic1"));
+        assert!(scheduled.contains("topic2"));
     }
 
     #[test]
     fn subscribers() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         manager.subscribe("topic1");
         manager.subscribe("topic2");
 
@@ -252,7 +288,7 @@ mod tests {
 
     #[test]
     fn subscribe_empty_topic() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let empty_topic = "";
 
         let _ = manager.subscribe(empty_topic);
@@ -262,7 +298,7 @@ mod tests {
 
     #[test]
     fn unsubscribe_non_existing() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let non_existing_topic = "non_existing_topic";
 
         manager.unsubscribe(non_existing_topic);
@@ -273,7 +309,7 @@ mod tests {
 
     #[test]
     fn subscribe_many() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let topics = vec!["topic1", "topic2", "topic3"];
 
         let receivers = manager.subscribe_many(topics.clone());
@@ -286,7 +322,7 @@ mod tests {
 
     #[test]
     fn schedule_unsubscribe_already_unsubscribed() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
         let topic = "already_unsubscribed";
 
         manager.schedule_unsubscribe(topic);
@@ -298,7 +334,7 @@ mod tests {
 
     #[test]
     fn combination_of_operations() {
-        let mut manager = SubscriberManager::new();
+        let mut manager = SubscriberManager::new(1);
 
         // Subscribe to multiple topics
         let topics = vec!["topic1", "topic2", "topic3"];
@@ -315,14 +351,32 @@ mod tests {
         assert!(!manager.subscribed.contains_key("topic2"));
         assert!(manager.unsubscribed.contains("topic3"));
 
-        let scheduled: Vec<_> = manager.scheduled().collect();
+        let scheduled: Vec<_> = manager.scheduled().iter().collect();
         assert_eq!(scheduled, vec!["topic3"]);
+    }
+
+    #[test]
+    fn capacity() {
+        let manager = SubscriberManager::new(usize::MAX);
+        assert_eq!(manager.capacity(), HALF_USIZE_MAX);
+
+        let manager = SubscriberManager::new(0);
+        assert_eq!(manager.capacity(), 1);
+
+        let manager = SubscriberManager::new(5);
+        assert_eq!(manager.capacity(), 5);
+
+        let manager = SubscriberManager::new(HALF_PLUS_ONE);
+        assert_eq!(manager.capacity(), HALF_USIZE_MAX);
+
+        let manager = SubscriberManager::new(HALF_USIZE_MAX);
+        assert_eq!(manager.capacity(), HALF_USIZE_MAX);
     }
 
     #[tokio::test]
     async fn with_close_tx_closes_manager() {
         let (close_tx, mut close_rx) = mpsc::channel(1);
-        let manager = SubscriberManager::with_close_tx(close_tx);
+        let manager = SubscriberManager::with_close_tx(close_tx, 1);
 
         // Drop the manager
         drop(manager);
