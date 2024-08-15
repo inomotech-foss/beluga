@@ -174,7 +174,7 @@ impl MqttClient {
             Ok(Subscriber(vec![rx]))
         } else {
             self.client.subscribe(topic.as_ref(), qos).await?;
-            Ok(Subscriber(vec![ctx.manager.subscribe(topic.as_ref())]))
+            Ok(Subscriber(vec![ctx.manager.subscribe(topic.as_ref(), qos)]))
         }
     }
 
@@ -213,7 +213,7 @@ impl MqttClient {
         } else {
             self.client.subscribe(topic.as_ref(), qos).await?;
             Ok(OwnedSubscriber {
-                subscriber: Subscriber(vec![ctx.manager.subscribe(topic.as_ref())]),
+                subscriber: Subscriber(vec![ctx.manager.subscribe(topic.as_ref(), qos)]),
                 topics: vec![topic.as_ref().to_owned()],
                 mqtt: self.clone(),
             })
@@ -258,7 +258,7 @@ impl MqttClient {
             )
             .await?;
 
-        Ok(Subscriber(ctx.manager.subscribe_many(new_topics)))
+        Ok(Subscriber(ctx.manager.subscribe_many(new_topics, qos)))
     }
 
     /// Subscribes to multiple MQTT topics with the specified Quality of Service
@@ -304,7 +304,7 @@ impl MqttClient {
             .await?;
 
         Ok(OwnedSubscriber {
-            subscriber: Subscriber(ctx.manager.subscribe_many(&new_topics)),
+            subscriber: Subscriber(ctx.manager.subscribe_many(&new_topics, qos)),
             topics: new_topics,
             mqtt: self.clone(),
         })
@@ -493,21 +493,38 @@ async fn poll(mut ctx: PollContext) {
     loop {
         tokio::select! {
             event = ctx.event_loop.poll() => {
-                // Handles an event by processing it and updating the connection error
-                // state if necessary.
-                if let Err(connection_err) = process_event(event, &mut ctx).await {
-                    let mut mqtt_ctx = ctx.mqtt_ctx.lock().await;
-
-                    // Sends an error to all subscribers of the MQTT subscription manager.
-                    //
-                    // When an error occurs in the MQTT connection, this code iterates through all
-                    // the subscribers in the MQTT  manager and sends the error to each one of them.
-                    let error = Error::from(connection_err);
-                    for tx in mqtt_ctx.manager.subscribers() {
-                        let _ = tx.send(Err(error.clone()));
+                // Processes an MQTT event and updates the MQTT context accordingly.
+                //
+                // This code first processes the MQTT event received from the event loop. If the event is a
+                // successful `Publish` packet, it is passed to the `process_packet` function to handle the
+                // incoming MQTT message.
+                //
+                // If the event is an error, the error is logged and the MQTT context's error state is updated.
+                let res = process_event(event, &mut ctx).await;
+                let mut mqtt_ctx = ctx.mqtt_ctx.lock().await;
+                match res {
+                    Ok(()) => {
+                        // If the MQTT connection was previously in an error state, this code attempts to
+                        // resubscribe the client to all the topics that were previously subscribed to.
+                        // If the resubscription fails, the error state is preserved.
+                        if mqtt_ctx.error.take().is_some() {
+                            if let Err(err) = resubscribe(ctx.client.clone(), mqtt_ctx.manager.topics_with_qos()).await {
+                                mqtt_ctx.error = Some(err);
+                            }
+                        }
                     }
+                    Err(connection_err) => {
+                        // Sends an error to all subscribers of the MQTT subscription manager.
+                        //
+                        // When an error occurs in the MQTT connection, this code iterates through all
+                        // the subscribers in the MQTT  manager and sends the error to each one of them.
+                        let error = Error::from(connection_err);
+                        for tx in mqtt_ctx.manager.subscribers() {
+                            let _ = tx.send(Err(error.clone()));
+                        }
 
-                    mqtt_ctx.error = Some(error);
+                        mqtt_ctx.error = Some(error);
+                    }
                 }
             }
             _ = ctx.close_rx.recv() => {
@@ -570,4 +587,14 @@ async fn process_packet(packet: Publish, client: &AsyncClient, manager: &mut Sub
             error!(error = &err as &dyn std::error::Error, topic = %topic, "couldn't provide packet for a subscriber")
         }
     }
+}
+
+async fn resubscribe(client: AsyncClient, topics: impl Iterator<Item = (&str, QoS)>) -> Result<()> {
+    futures::future::try_join_all(topics.map(|(topic, qos)| {
+        let client = client.clone();
+        async move { client.subscribe(topic, qos).await }
+    }))
+    .await?;
+
+    Ok(())
 }

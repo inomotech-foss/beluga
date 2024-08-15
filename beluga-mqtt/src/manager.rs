@@ -3,14 +3,34 @@ use std::collections::{HashMap, HashSet};
 use rumqttc::Publish;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::{Receiver, Result, Sender};
+use crate::{QoS, Receiver, Result, Sender};
 
 const HALF_USIZE_MAX: usize = usize::MAX / 2;
 const HALF_PLUS_ONE: usize = usize::MAX / 2 + 1;
 
 #[derive(Debug)]
+struct Subscriber {
+    sender: Sender,
+    qos: QoS,
+}
+
+impl Subscriber {
+    /// Returns a reference to the `Sender` associated with this `Subscribed`
+    /// instance.
+    const fn sender(&self) -> &Sender {
+        &self.sender
+    }
+
+    /// Returns the QoS (Quality of Service) level associated with this
+    /// `Subscribed` instance.
+    const fn qos(&self) -> QoS {
+        self.qos
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct SubscriberManager {
-    subscribed: HashMap<String, Sender>,
+    subscribed: HashMap<String, Subscriber>,
     unsubscribed: HashSet<String>,
     close_tx: Option<mpsc::Sender<()>>,
     channel_capacity: usize,
@@ -68,13 +88,22 @@ impl SubscriberManager {
     /// Returns a reference to the `Sender` for the given topic, if the
     /// topic is currently subscribed.
     pub(super) fn sender(&self, topic: &str) -> Option<&Sender> {
-        self.subscribed.get(topic)
+        self.subscribed.get(topic).map(Subscriber::sender)
     }
 
     /// Returns a receiver for the given topic, if the topic is currently
     /// subscribed
     pub(super) fn receiver(&self, topic: &str) -> Option<Receiver> {
-        self.subscribed.get(topic).map(|sender| sender.subscribe())
+        self.subscribed
+            .get(topic)
+            .map(|subscriber| subscriber.sender().subscribe())
+    }
+
+    /// Returns the Quality of Service (QoS) level for the given topic, if the
+    /// topic is currently subscribed.
+    #[allow(dead_code)]
+    pub(super) fn qos(&self, topic: &str) -> Option<QoS> {
+        self.subscribed.get(topic).map(Subscriber::qos)
     }
 
     /// Returns an iterator over the topics that are not currently
@@ -91,26 +120,27 @@ impl SubscriberManager {
             .collect::<Vec<String>>()
     }
 
-    pub(super) fn subscribe(&mut self, topic: &str) -> Receiver {
+    pub(super) fn subscribe(&mut self, topic: &str, qos: QoS) -> Receiver {
         self.unsubscribed.remove(topic);
 
-        if let Some(sender) = self.subscribed.get(topic) {
-            sender.subscribe()
+        if let Some(subscriber) = self.subscribed.get(topic) {
+            subscriber.sender().subscribe()
         } else {
-            let (tx, rx) = broadcast::channel::<Result<Publish>>(self.channel_capacity);
-            self.subscribed.insert(topic.to_owned(), tx);
+            let (sender, rx) = broadcast::channel::<Result<Publish>>(self.channel_capacity);
+            self.subscribed
+                .insert(topic.to_owned(), Subscriber { sender, qos });
             rx
         }
     }
 
-    pub(super) fn subscribe_many<Iter>(&mut self, topics: Iter) -> Vec<Receiver>
+    pub(super) fn subscribe_many<Iter>(&mut self, topics: Iter, qos: QoS) -> Vec<Receiver>
     where
         Iter: IntoIterator,
         Iter::Item: AsRef<str>,
     {
         topics
             .into_iter()
-            .map(|topic| self.subscribe(topic.as_ref()))
+            .map(|topic| self.subscribe(topic.as_ref(), qos))
             .collect::<Vec<_>>()
     }
 
@@ -148,7 +178,15 @@ impl SubscriberManager {
     /// Returns an iterator over the senders that have subscribed to this
     /// manager.
     pub(super) fn subscribers(&self) -> impl Iterator<Item = &Sender> {
-        self.subscribed.values()
+        self.subscribed.values().map(Subscriber::sender)
+    }
+
+    /// Returns an iterator over the topics that have been subscribed to, along
+    /// with their associated QoS level.
+    pub(super) fn topics_with_qos(&self) -> impl Iterator<Item = (&str, QoS)> {
+        self.subscribed
+            .iter()
+            .map(|(topic, subscriber)| (topic.as_str(), subscriber.qos()))
     }
 
     #[allow(dead_code)]
@@ -185,7 +223,7 @@ mod tests {
         let mut manager = SubscriberManager::new(1);
         let topic = "topic";
 
-        let _receiver = manager.subscribe(topic);
+        let _receiver = manager.subscribe(topic, QoS::AtLeastOnce);
 
         assert!(manager.subscribed.contains_key(topic));
         assert!(!manager.unsubscribed.contains(topic));
@@ -197,8 +235,8 @@ mod tests {
         let mut manager = SubscriberManager::new(1);
         let topic = "topic";
 
-        let _ = manager.subscribe(topic);
-        let _ = manager.subscribe(topic);
+        let _ = manager.subscribe(topic, QoS::AtLeastOnce);
+        let _ = manager.subscribe(topic, QoS::AtLeastOnce);
 
         assert_eq!(manager.subscribed.len(), 1);
         assert!(manager.subscribed.contains_key(topic));
@@ -209,7 +247,7 @@ mod tests {
         let mut manager = SubscriberManager::new(1);
         let topic = "topic";
 
-        manager.subscribe(topic);
+        manager.subscribe(topic, QoS::AtLeastOnce);
         manager.unsubscribe(topic);
 
         assert!(!manager.subscribed.contains_key(topic));
@@ -221,7 +259,7 @@ mod tests {
         let mut manager = SubscriberManager::new(1);
         let topic = "topic";
 
-        manager.subscribe(topic);
+        manager.subscribe(topic, QoS::AtLeastOnce);
         manager.schedule_unsubscribe(topic);
 
         assert!(!manager.subscribed.contains_key(topic));
@@ -231,7 +269,7 @@ mod tests {
     #[test]
     fn subscribed_diff() {
         let mut manager = SubscriberManager::new(1);
-        manager.subscribe_many(["topic1", "topic2", "topic3"]);
+        manager.subscribe_many(["topic1", "topic2", "topic3"], QoS::AtLeastOnce);
         let diff = manager.subscribed_diff(["topic4", "topic5", "topic2"]);
         assert_eq!(diff, ["topic4", "topic5"]);
     }
@@ -239,7 +277,7 @@ mod tests {
     #[test]
     fn subscribed_diff_empty() {
         let mut manager = SubscriberManager::new(1);
-        manager.subscribe_many(["topic1", "topic2", "topic3"]);
+        manager.subscribe_many(["topic1", "topic2", "topic3"], QoS::AtLeastOnce);
         let diff = manager.subscribed_diff(["topic2", "topic3"]);
         assert!(diff.is_empty());
     }
@@ -248,7 +286,7 @@ mod tests {
     fn receiver() {
         let mut manager = SubscriberManager::new(1);
         let topic = "topic";
-        manager.subscribe(topic);
+        manager.subscribe(topic, QoS::AtMostOnce);
         let receiver = manager.receiver(topic);
         assert!(receiver.is_some());
     }
@@ -257,8 +295,8 @@ mod tests {
     fn schedule_unsubscribe_many() {
         let mut manager = SubscriberManager::new(1);
 
-        manager.subscribe("topic1");
-        manager.subscribe("topic2");
+        manager.subscribe("topic1", QoS::AtMostOnce);
+        manager.subscribe("topic2", QoS::AtMostOnce);
         manager.schedule_unsubscribe_many(["topic1", "topic2"]);
 
         assert!(manager.unsubscribed.contains("topic1"));
@@ -279,8 +317,8 @@ mod tests {
     #[test]
     fn subscribers() {
         let mut manager = SubscriberManager::new(1);
-        manager.subscribe("topic1");
-        manager.subscribe("topic2");
+        manager.subscribe("topic1", QoS::AtMostOnce);
+        manager.subscribe("topic2", QoS::AtMostOnce);
 
         let subscribers: Vec<_> = manager.subscribers().collect();
         assert_eq!(subscribers.len(), 2);
@@ -291,7 +329,7 @@ mod tests {
         let mut manager = SubscriberManager::new(1);
         let empty_topic = "";
 
-        let _ = manager.subscribe(empty_topic);
+        let _ = manager.subscribe(empty_topic, QoS::ExactlyOnce);
 
         assert!(manager.subscribed.contains_key(empty_topic));
     }
@@ -312,7 +350,7 @@ mod tests {
         let mut manager = SubscriberManager::new(1);
         let topics = vec!["topic1", "topic2", "topic3"];
 
-        let receivers = manager.subscribe_many(topics.clone());
+        let receivers = manager.subscribe_many(topics.clone(), QoS::ExactlyOnce);
 
         assert_eq!(receivers.len(), 3);
         for topic in topics {
@@ -338,7 +376,7 @@ mod tests {
 
         // Subscribe to multiple topics
         let topics = vec!["topic1", "topic2", "topic3"];
-        manager.subscribe_many(topics.clone());
+        manager.subscribe_many(topics.clone(), QoS::ExactlyOnce);
 
         // Unsubscribe one topic
         manager.unsubscribe("topic2");
