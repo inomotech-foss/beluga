@@ -1,6 +1,8 @@
-use beluga_aws_sdk::{details, JobStatus, JobsClient};
+use core::time::Duration;
+
+use beluga_aws_sdk::{JobStatus, JobsClient};
 use beluga_mqtt::MqttClientBuilder;
-use tracing::{info, Level};
+use tracing::Level;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -17,14 +19,13 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 
     let jobs_client = JobsClient::new(client).await?;
-    let mut job = jobs_client.job("id1").await?;
+    let (_in_progress, queued) = jobs_client.get().await?;
 
-    let _ = job.document().unwrap();
-    job.update_with_details(JobStatus::InProgress, details! { "name" => "device" })
-        .await?;
-
-    let job = jobs_client.job("id1").await?;
-    info!("Name: {}", job.details().unwrap()["name"]);
+    for mut job in queued {
+        job.update(JobStatus::InProgress).await?;
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        job.update(JobStatus::Succeeded).await?;
+    }
 
     Ok(())
 }

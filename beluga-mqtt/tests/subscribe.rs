@@ -1,7 +1,8 @@
 use std::time::Duration;
 
-use beluga_mqtt::{Publish, QoS};
+use beluga_mqtt::{Error, Publish, QoS};
 use common::{ca, client, mqtt_server, port, server_certs, signed_cert};
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::oneshot;
 
 mod common;
@@ -250,6 +251,33 @@ async fn subscribe_many() {
 }
 
 #[tokio::test]
+async fn subscribe_many_empty() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (ca, ca_key) = ca().unwrap();
+    let (client_cert, client_key) = signed_cert(&ca, &ca_key).unwrap();
+    let (ca_path, cert_path, key_path) = server_certs(temp_dir.path(), &ca, &ca_key).await.unwrap();
+    let port = port();
+
+    let _guard = mqtt_server(
+        ca_path.to_str().unwrap().to_owned(),
+        cert_path.to_str().unwrap().to_owned(),
+        key_path.to_str().unwrap().to_owned(),
+        port,
+    )
+    .drop_guard();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
+
+    let err = client
+        .subscribe_many(Vec::<String>::new(), QoS::AtLeastOnce)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, Error::ConnectionError(_)));
+}
+
+#[tokio::test]
 async fn subscribe_many_qos_levels() {
     let temp_dir = tempfile::tempdir().unwrap();
     let (ca, ca_key) = ca().unwrap();
@@ -313,5 +341,122 @@ async fn subscribe_many_qos_levels() {
             .unsubscribe_many(&["qos_topic_a", "qos_topic_b"])
             .await
             .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn subscribe_owned() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (ca, ca_key) = ca().unwrap();
+    let (client_cert, client_key) = signed_cert(&ca, &ca_key).unwrap();
+    let (ca_path, cert_path, key_path) = server_certs(temp_dir.path(), &ca, &ca_key).await.unwrap();
+    let port = port();
+
+    let _guard = mqtt_server(
+        ca_path.to_str().unwrap().to_owned(),
+        cert_path.to_str().unwrap().to_owned(),
+        key_path.to_str().unwrap().to_owned(),
+        port,
+    )
+    .drop_guard();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
+
+    let mut s1 = client.subscribe("topic", QoS::AtLeastOnce).await.unwrap();
+
+    let s2 = client
+        .subscribe_owned("topic", QoS::AtLeastOnce)
+        .await
+        .unwrap();
+
+    drop(s2);
+
+    client
+        .publish("topic", QoS::AtLeastOnce, false, "message".into())
+        .await
+        .unwrap();
+
+    // Allow time for the MQTT client task to complete the unsubscribe operation
+    // This ensures that when we subscribe again, we won't receive the previous
+    // message ("message") but instead receive the new message ("next-message")
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    assert!(matches!(
+        s1.recv().await,
+        Err(Error::Receive(RecvError::Closed))
+    ));
+
+    let mut s3 = client.subscribe("topic", QoS::AtLeastOnce).await.unwrap();
+    client
+        .publish("topic", QoS::AtLeastOnce, false, "next-message".into())
+        .await
+        .unwrap();
+
+    tokio::select! {
+        p = s3.recv() => {
+            let packet = p.unwrap();
+            assert_eq!(packet.payload, "next-message");
+        }
+        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+            panic!("timeout");
+        }
+    }
+}
+
+#[tokio::test]
+async fn subscribe_many_owned() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (ca, ca_key) = ca().unwrap();
+    let (client_cert, client_key) = signed_cert(&ca, &ca_key).unwrap();
+    let (ca_path, cert_path, key_path) = server_certs(temp_dir.path(), &ca, &ca_key).await.unwrap();
+    let port = port();
+
+    let _guard = mqtt_server(
+        ca_path.to_str().unwrap().to_owned(),
+        cert_path.to_str().unwrap().to_owned(),
+        key_path.to_str().unwrap().to_owned(),
+        port,
+    )
+    .drop_guard();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
+
+    let s1 = client
+        .subscribe_many_owned(vec!["topic_a", "topic_b", "topic_c"], QoS::AtLeastOnce)
+        .await
+        .unwrap();
+
+    drop(s1);
+
+    client
+        .publish("topic_b", QoS::AtLeastOnce, false, "message".into())
+        .await
+        .unwrap();
+
+    // Allow time for the MQTT client task to complete the unsubscribe operation
+    // This ensures that when we subscribe again, we won't receive the previous
+    // message ("message") but instead receive the new message ("next-message")
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mut s3 = client
+        .subscribe_many_owned(vec!["topic_a", "topic_b", "topic_c"], QoS::AtLeastOnce)
+        .await
+        .unwrap();
+
+    client
+        .publish("topic_c", QoS::AtLeastOnce, false, "next-message".into())
+        .await
+        .unwrap();
+
+    tokio::select! {
+        p = s3.recv() => {
+            let packet = p.unwrap();
+            assert_eq!(packet.payload, "next-message");
+        }
+        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+            panic!("timeout");
+        }
     }
 }
