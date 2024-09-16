@@ -37,7 +37,7 @@ tempfile = "3"
 toml = "0.8"
 time = "0.3"
 thiserror = "1"
-tokio-tungstenite = { version = "0.23", default-features = false }
+tokio-tungstenite = { version = "0.24", default-features = false }
 tokio = { version = "1", default-features = false, features = ["full"] }
 tokio-util = "0.7"
 tracing = "0.1"
