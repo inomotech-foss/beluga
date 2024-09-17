@@ -10,19 +10,19 @@ publish.workspace = true
 
 [dependencies]
 beluga-mqtt.workspace = true
-beluga-tunnel.workspace = true
 beluga-ssh-service.workspace = true
+beluga-tunnel.workspace = true
 bytes.workspace = true
-ciborium = { workspace = true, optional = true }
 chrono = { workspace = true, features = ["serde"] }
-rand.workspace = true
+ciborium = { workspace = true, optional = true }
 futures.workspace = true
-serde.workspace = true
+rand.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 strum.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
+tracing.workspace = true
 
 [dependencies.tokio]
 workspace = true
@@ -34,8 +34,8 @@ anyhow.workspace = true
 itertools.workspace = true
 petname.workspace = true
 rcgen.workspace = true
-toml.workspace = true
 time.workspace = true
+toml.workspace = true
 tracing-subscriber.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 

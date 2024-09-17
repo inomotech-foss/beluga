@@ -9,9 +9,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-rumqttc.workspace = true
 bytes.workspace = true
 futures.workspace = true
+rumqttc.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
@@ -22,9 +22,9 @@ features = ["rt", "net", "io-util", "sync"]
 
 [dev-dependencies]
 anyhow.workspace = true
+rcgen.workspace = true
+rumqttd.workspace = true
+rustls.workspace = true
+tempfile.workspace = true
 time.workspace = true
 tracing-subscriber.workspace = true
-tempfile.workspace = true
-rumqttd.workspace = true
-rcgen.workspace = true
-rustls.workspace = true
