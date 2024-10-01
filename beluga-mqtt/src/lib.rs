@@ -22,17 +22,27 @@ mod error;
 mod manager;
 mod subscriber;
 
+#[derive(Debug)]
+pub enum TransportBuilder<'a> {
+    /// Use unencrypted TCP connection
+    Tcp,
+    /// Use TLS connection with provided certificates
+    Tls {
+        ca: &'a [u8],
+        cert: &'a [u8],
+        key: &'a [u8],
+    },
+}
+
 /// A builder for creating an `MqttClient` with specific configurations.
 #[derive(Debug, Default)]
 pub struct MqttClientBuilder<'a> {
-    certificate: Option<&'a [u8]>,
-    private_key: Option<&'a [u8]>,
-    certificate_authority: Option<&'a [u8]>,
     thing_name: Option<&'a str>,
     endpoint: Option<&'a str>,
     keep_alive: Option<Duration>,
     subscriber_capacity: usize,
     port: u16,
+    transport: Option<TransportBuilder<'a>>,
 }
 
 impl<'a> MqttClientBuilder<'a> {
@@ -40,13 +50,13 @@ impl<'a> MqttClientBuilder<'a> {
     ///
     /// # Returns
     /// A new `MqttClientBuilder` instance.
-    pub fn new() -> Self {
-        Self {
-            port: 8883,
-            subscriber_capacity: 10,
-            ..Default::default()
+        pub fn new() -> Self {
+            Self {
+                port: 1883, // Default to 1883 for TCP
+                subscriber_capacity: 10,
+                ..Default::default()
+            }
         }
-    }
 
     /// Sets the name of the thing
     pub const fn thing_name(mut self, name: &'a str) -> Self {
@@ -66,21 +76,15 @@ impl<'a> MqttClientBuilder<'a> {
         self
     }
 
-    /// Sets the certificate to use for the MQTT connection.
-    pub const fn certificate(mut self, cert: &'a [u8]) -> Self {
-        self.certificate = Some(cert);
+    /// Sets the transport to use TCP (unencrypted).
+    pub fn set_tcp_transport(mut self) -> Self {
+        self.transport = Some(TransportBuilder::Tcp);
         self
     }
 
-    /// Sets the private key to use for the MQTT connection.
-    pub const fn private_key(mut self, key: &'a [u8]) -> Self {
-        self.private_key = Some(key);
-        self
-    }
-
-    /// Sets the certificate authority to use for the MQTT connection.
-    pub const fn ca(mut self, ca: &'a [u8]) -> Self {
-        self.certificate_authority = Some(ca);
+    /// Sets the transport to use TLS with the provided certificates.
+    pub fn set_tls_transport(mut self, ca: &'a [u8], cert: &'a [u8], key: &'a [u8]) -> Self {
+        self.transport = Some(TransportBuilder::Tls { ca, cert, key });
         self
     }
 
@@ -103,22 +107,26 @@ impl<'a> MqttClientBuilder<'a> {
     /// Builds an MQTT client with the configured options.
     pub fn build(self) -> Result<MqttClient> {
         let thing_name = self.thing_name.ok_or(Error::ThingName)?;
-        let mut options =
-            MqttOptions::new(thing_name, self.endpoint.ok_or(Error::Endpoint)?, self.port);
-        options.set_transport(Transport::tls(
-            self.certificate_authority.ok_or(Error::Ca)?.to_vec(),
-            (
-                self.certificate.ok_or(Error::Certificate)?.to_vec(),
-                self.private_key.ok_or(Error::PrivateKey)?.to_vec(),
-            )
-                .into(),
-            None,
-        ));
-
+        let endpoint = self.endpoint.ok_or(Error::Endpoint)?;
+        let mut options = MqttOptions::new(thing_name, endpoint, self.port);
+    
+        match self.transport {
+            Some(TransportBuilder::Tcp) | None => {
+                options.set_transport(Transport::Tcp);
+            }
+            Some(TransportBuilder::Tls { ca, cert, key }) => {
+                options.set_transport(Transport::tls(
+                    ca.to_vec(),
+                    (cert.to_vec(), key.to_vec()).into(),
+                    None,
+                ));
+            }
+        }
+    
         if let Some(duration) = self.keep_alive {
             options.set_keep_alive(duration);
         }
-
+    
         let (client, event_loop) = AsyncClient::new(options, 10);
         let (close_tx, close_rx) = mpsc::channel::<()>(1);
         let ctx = Arc::new(Mutex::new(MqttContext::new(
