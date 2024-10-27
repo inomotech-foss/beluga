@@ -108,17 +108,15 @@ impl<'a> MqttClientBuilder<'a> {
         self
     }
 
-    /// Builds an MQTT client with the configured options.
     pub fn build(self) -> Result<MqttClient> {
         let thing_name = self.thing_name.ok_or(Error::ThingName)?;
-        let mut options =
-            MqttOptions::new(thing_name, self.endpoint.ok_or(Error::Endpoint)?, self.port);
+        let endpoint = self.endpoint.ok_or(Error::Endpoint)?;
+        let mut options = MqttOptions::new(thing_name, endpoint, self.port);
 
-        if let (Some(_ca), Some(_cert), Some(_key)) = (
-            self.certificate_authority,
-            self.certificate,
-            self.private_key,
-        ) {
+        if self.certificate_authority.is_some()
+            && self.certificate.is_some()
+            && self.private_key.is_some()
+        {
             options.set_transport(Transport::tls(
                 self.certificate_authority.ok_or(Error::Ca)?.to_vec(),
                 (
