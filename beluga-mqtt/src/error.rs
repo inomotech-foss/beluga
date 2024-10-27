@@ -16,6 +16,15 @@ pub enum Error {
     /// The thing name is missing.
     #[error("missing thing name")]
     ThingName,
+    /// The certificate is missing.
+    #[error("missing certificate")]
+    Certificate,
+    /// The private key is missing.
+    #[error("missing private key")]
+    PrivateKey,
+    /// The certificate authority (CA) is missing.
+    #[error("missing authority")]
+    Ca,
     /// The subscriber doesn't contain any receivers.
     #[error("subscriber doesn't contain any receivers")]
     EmptySubscriber,
