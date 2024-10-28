@@ -32,7 +32,7 @@ pub struct MqttClientBuilder<'a> {
     endpoint: Option<&'a str>,
     keep_alive: Option<Duration>,
     subscriber_capacity: usize,
-    port: u16,
+    port: Option<u16>,
 }
 
 impl<'a> MqttClientBuilder<'a> {
@@ -42,15 +42,6 @@ impl<'a> MqttClientBuilder<'a> {
     /// A new `MqttClientBuilder` instance.
     pub fn new() -> Self {
         Self {
-            port: 8883,
-            subscriber_capacity: 10,
-            ..Default::default()
-        }
-    }
-
-    pub fn new_unencrypted() -> Self {
-        Self {
-            port: 1883,
             subscriber_capacity: 10,
             ..Default::default()
         }
@@ -70,7 +61,7 @@ impl<'a> MqttClientBuilder<'a> {
 
     /// Sets the MQTT port to connect to.
     pub const fn port(mut self, port: u16) -> Self {
-        self.port = port;
+        self.port = Some(port);
         self
     }
 
@@ -111,19 +102,25 @@ impl<'a> MqttClientBuilder<'a> {
     pub fn build(self) -> Result<MqttClient> {
         let thing_name = self.thing_name.ok_or(Error::ThingName)?;
         let endpoint = self.endpoint.ok_or(Error::Endpoint)?;
-        let mut options = MqttOptions::new(thing_name, endpoint, self.port);
 
-        if self.certificate_authority.is_some()
+        // Determine if TLS is being used
+        let is_tls = self.certificate_authority.is_some()
             && self.certificate.is_some()
-            && self.private_key.is_some()
-        {
+            && self.private_key.is_some();
+
+        // Set the default port based on whether TLS is used
+        let port: u16 = if is_tls { 8883 } else { 1883 };
+
+        let mut options = MqttOptions::new(thing_name, endpoint, port);
+
+        if is_tls {
             options.set_transport(Transport::tls(
                 self.certificate_authority.ok_or(Error::Ca)?.to_vec(),
                 (
                     self.certificate.ok_or(Error::Certificate)?.to_vec(),
                     self.private_key.ok_or(Error::PrivateKey)?.to_vec(),
                 )
-                    .into(),
+                .into(),
                 None,
             ));
         } else {
