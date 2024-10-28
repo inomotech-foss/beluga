@@ -120,7 +120,7 @@ impl<'a> MqttClientBuilder<'a> {
                     self.certificate.ok_or(Error::Certificate)?.to_vec(),
                     self.private_key.ok_or(Error::PrivateKey)?.to_vec(),
                 )
-                .into(),
+                    .into(),
                 None,
             ));
         } else {
