@@ -109,7 +109,7 @@ impl<'a> MqttClientBuilder<'a> {
             && self.private_key.is_some();
 
         // Set the default port based on whether TLS is used
-        let port: u16 = if is_tls { 8883 } else { 1883 };
+        let port = self.port.unwrap_or(if is_tls { 8883 } else { 1883 });
 
         let mut options = MqttOptions::new(thing_name, endpoint, port);
 
