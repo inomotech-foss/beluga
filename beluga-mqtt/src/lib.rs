@@ -97,6 +97,10 @@ impl<'a> MqttClientBuilder<'a> {
 
     /// Sets the minimum delay between reconnection attempts.
     ///
+    /// If set to `Duration::ZERO`, the client will always attempt to reconnect
+    /// immediately without delay, effectively disabling backoff.
+    /// This is not recommended for production use.
+    ///
     /// Defaults to 1 second.
     pub const fn min_reconnect_delay(mut self, time: Duration) -> Self {
         self.min_reconnect_delay = Some(time);
@@ -104,6 +108,9 @@ impl<'a> MqttClientBuilder<'a> {
     }
 
     /// Sets the maximum delay between reconnection attempts.
+    ///
+    /// If set to a value less than the minimum reconnect delay, the minimum
+    /// reconnect delay will be used instead.
     ///
     /// Defaults to 5 minutes.
     pub const fn max_reconnect_delay(mut self, time: Duration) -> Self {
@@ -523,6 +530,7 @@ impl PollContext {
         min_reconnect_delay: Duration,
         max_reconnect_delay: Duration,
     ) -> Self {
+        let max_reconnect_delay = std::cmp::max(min_reconnect_delay, max_reconnect_delay);
         Self {
             client,
             event_loop,

@@ -120,6 +120,7 @@ pub fn client(
         .thing_name(name)
         .endpoint("127.0.0.1")
         .port(port)
+        .min_reconnect_delay(std::time::Duration::from_millis(10))
         .build()?)
 }
 
