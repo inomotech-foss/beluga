@@ -18,7 +18,7 @@ tracing.workspace = true
 [dependencies.tokio]
 workspace = true
 default-features = false
-features = ["rt", "net", "io-util", "sync"]
+features = ["rt", "net", "io-util", "sync", "time"]
 
 [dev-dependencies]
 anyhow.workspace = true

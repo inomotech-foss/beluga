@@ -13,14 +13,17 @@ pub use subscriber::{OwnedSubscriber, Subscriber};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, warn};
 
+mod error;
+mod manager;
+mod subscriber;
+
 pub type Result<T> = core::result::Result<T, Error>;
 
 type Sender = tokio::sync::broadcast::Sender<Result<Publish>>;
 type Receiver = tokio::sync::broadcast::Receiver<Result<Publish>>;
 
-mod error;
-mod manager;
-mod subscriber;
+const DEFAULT_MIN_RECONNECT_DELAY: Duration = Duration::from_secs(1);
+const DEFAULT_MAX_RECONNECT_DELAY: Duration = Duration::from_secs(300);
 
 /// A builder for creating an `MqttClient` with specific configurations.
 #[derive(Debug, Default)]
@@ -31,6 +34,8 @@ pub struct MqttClientBuilder<'a> {
     thing_name: Option<&'a str>,
     endpoint: Option<&'a str>,
     keep_alive: Option<Duration>,
+    min_reconnect_delay: Option<Duration>,
+    max_reconnect_delay: Option<Duration>,
     subscriber_capacity: usize,
     port: Option<u16>,
 }
@@ -90,6 +95,22 @@ impl<'a> MqttClientBuilder<'a> {
         self
     }
 
+    /// Sets the minimum delay between reconnection attempts.
+    ///
+    /// Defaults to 1 second.
+    pub const fn min_reconnect_delay(mut self, time: Duration) -> Self {
+        self.min_reconnect_delay = Some(time);
+        self
+    }
+
+    /// Sets the maximum delay between reconnection attempts.
+    ///
+    /// Defaults to 5 minutes.
+    pub const fn max_reconnect_delay(mut self, time: Duration) -> Self {
+        self.max_reconnect_delay = Some(time);
+        self
+    }
+
     /// Sets the maximum capacity for a [`Subscriber`] receiver channel.
     /// This allows controlling the buffer size for incoming messages to
     /// subscribers. A larger buffer can prevent message loss, but may
@@ -142,6 +163,10 @@ impl<'a> MqttClientBuilder<'a> {
             event_loop,
             close_rx,
             ctx.clone(),
+            self.min_reconnect_delay
+                .unwrap_or(DEFAULT_MIN_RECONNECT_DELAY),
+            self.max_reconnect_delay
+                .unwrap_or(DEFAULT_MAX_RECONNECT_DELAY),
         )));
 
         Ok(MqttClient {
@@ -481,6 +506,12 @@ struct PollContext {
     event_loop: EventLoop,
     close_rx: mpsc::Receiver<()>,
     mqtt_ctx: Arc<Mutex<MqttContext>>,
+    min_reconnect_delay: Duration,
+    max_reconnect_delay: Duration,
+    /// Current delay between reconnection attempts.
+    ///
+    /// `Duration::ZERO` means that the client is currently connected.
+    reconnect_delay: Duration,
 }
 
 impl PollContext {
@@ -489,12 +520,17 @@ impl PollContext {
         event_loop: EventLoop,
         close_rx: mpsc::Receiver<()>,
         mqtt_ctx: Arc<Mutex<MqttContext>>,
+        min_reconnect_delay: Duration,
+        max_reconnect_delay: Duration,
     ) -> Self {
         Self {
             client,
             event_loop,
             close_rx,
             mqtt_ctx,
+            min_reconnect_delay,
+            max_reconnect_delay,
+            reconnect_delay: Duration::ZERO,
         }
     }
 }
@@ -502,6 +538,18 @@ impl PollContext {
 /// Asynchronous function that handles polling the MQTT event loop.
 async fn poll(mut ctx: PollContext) {
     loop {
+        // apply reconnect delay before calling poll() (which will try to reconnect
+        // without any delay)
+        if ctx.reconnect_delay != Duration::ZERO {
+            warn!("reconnecting in {:?}", ctx.reconnect_delay);
+            tokio::select! {
+                _ = tokio::time::sleep(ctx.reconnect_delay) => {}
+                _ = ctx.close_rx.recv() => {
+                    break;
+                }
+            }
+        }
+
         tokio::select! {
             event = ctx.event_loop.poll() => {
                 // Processes an MQTT event and updates the MQTT context accordingly.
@@ -515,6 +563,9 @@ async fn poll(mut ctx: PollContext) {
                 let mut mqtt_ctx = ctx.mqtt_ctx.lock().await;
                 match res {
                     Ok(()) => {
+                        // reset the reconnect delay in case of successful connection
+                        ctx.reconnect_delay = Duration::ZERO;
+
                         // If the MQTT connection was previously in an error state, this code attempts to
                         // resubscribe the client to all the topics that were previously subscribed to.
                         // If the resubscription fails, the error state is preserved.
@@ -535,15 +586,23 @@ async fn poll(mut ctx: PollContext) {
                         }
 
                         mqtt_ctx.error = Some(error);
+
+                        if ctx.reconnect_delay == Duration::ZERO {
+                            // first time we're trying to reconnect, so set the delay to the minimum
+                            ctx.reconnect_delay = ctx.min_reconnect_delay;
+                        } else {
+                            // increase the delay exponentially up to the maximum
+                            ctx.reconnect_delay = std::cmp::min(ctx.reconnect_delay * 2, ctx.max_reconnect_delay);
+                        }
                     }
                 }
             }
             _ = ctx.close_rx.recv() => {
-                debug!("exit event poll loop");
                 break;
             }
         }
     }
+    debug!("exit event poll loop");
 }
 
 /// Processes an MQTT event.
