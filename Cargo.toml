@@ -7,7 +7,7 @@ authors = [
     "Silvestr Predko <silvestr1994@gmail.com>",
     "Simon Berger <simon.berger@inomotech.com>",
 ]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.74"
