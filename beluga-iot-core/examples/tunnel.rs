@@ -1,4 +1,4 @@
-use beluga_aws_sdk::TunnelManager;
+use beluga_iot_core::TunnelManager;
 use beluga_mqtt::MqttClientBuilder;
 use tracing::Level;
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Context;
-use beluga_aws_sdk::provision::{
+use beluga_iot_core::provision::{
     create_certificate_from_csr, register_thing, RegisterThingResponse,
 };
 use beluga_mqtt::MqttClientBuilder;

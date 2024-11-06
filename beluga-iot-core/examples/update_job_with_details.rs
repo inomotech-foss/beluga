@@ -1,6 +1,6 @@
 use core::time::Duration;
 
-use beluga_aws_sdk::{details, JobStatus, JobsClient};
+use beluga_iot_core::{details, JobStatus, JobsClient};
 use beluga_mqtt::MqttClientBuilder;
 use tracing::Level;
 
