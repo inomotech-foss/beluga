@@ -22,6 +22,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 type Sender = tokio::sync::broadcast::Sender<Result<Publish>>;
 type Receiver = tokio::sync::broadcast::Receiver<Result<Publish>>;
 
+const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_MIN_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 const DEFAULT_MAX_RECONNECT_DELAY: Duration = Duration::from_secs(300);
 
@@ -36,6 +37,7 @@ pub struct MqttClientBuilder<'a> {
     keep_alive: Option<Duration>,
     min_reconnect_delay: Option<Duration>,
     max_reconnect_delay: Option<Duration>,
+    connect_timeout: Option<Duration>,
     subscriber_capacity: usize,
     port: Option<u16>,
 }
@@ -92,6 +94,20 @@ impl<'a> MqttClientBuilder<'a> {
     /// if there is no other data exchange
     pub const fn keep_alive(mut self, time: Duration) -> Self {
         self.keep_alive = Some(time);
+        self
+    }
+
+    /// Sets the connect timeout.
+    ///
+    /// This timeout is used when connecting to the broker.
+    /// The value only has a resolution of seconds.
+    ///
+    /// Any value less than 1 second will be treated as 0 seconds,
+    /// which will cause the connection to fail instantly.
+    ///
+    /// Defaults to 5 seconds.
+    pub const fn connect_timeout(mut self, time: Duration) -> Self {
+        self.connect_timeout = Some(time);
         self
     }
 
@@ -158,7 +174,13 @@ impl<'a> MqttClientBuilder<'a> {
             options.set_keep_alive(duration);
         }
 
-        let (client, event_loop) = AsyncClient::new(options, 10);
+        let (client, mut event_loop) = AsyncClient::new(options, 10);
+        event_loop.network_options.set_connection_timeout(
+            self.connect_timeout
+                .unwrap_or(DEFAULT_CONNECT_TIMEOUT)
+                .as_secs(),
+        );
+
         let (close_tx, close_rx) = mpsc::channel::<()>(1);
         let ctx = Arc::new(Mutex::new(MqttContext::new(
             SubscriberManager::with_close_tx(close_tx, self.subscriber_capacity),
