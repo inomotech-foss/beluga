@@ -22,6 +22,7 @@ use tracing::warn;
 pub type Result<T> = core::result::Result<T, Error>;
 
 pub struct Tunnel {
+    client_mode: ClientMode,
     web_socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
 }
 
@@ -38,23 +39,18 @@ impl Tunnel {
     /// If the checks pass, the function creates a new WebSocket connection to
     /// the AWS IoT Secure Tunneling endpoint and returns a [`Tunnel`]
     /// instance.
-    pub async fn new(payload: bytes::Bytes) -> Result<Self> {
+    pub async fn new(notify: &Notify) -> Result<Self> {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .expect("Failed to install rustls crypto provider");
         let Notify {
             client_access_token,
             client_mode,
             region,
             services,
-        } = serde_json::from_slice::<Notify>(&payload)?;
+        } = notify;
 
-        if client_mode != "destination" {
-            return Err(Error::ClientMode);
-        }
-
-        if !services
-            .iter()
-            .map(String::as_str)
-            .any(|service| service == "SSH")
-        {
+        if !services.iter().any(|service| service == "SSH") {
             return Err(Error::NoSSHService);
         }
 
@@ -66,19 +62,28 @@ impl Tunnel {
         let req = Request::builder()
             .method("GET")
             .header("access-token", client_access_token)
-            .header(http::header::HOST, format!("data.tunneling.iot.{region}.amazonaws.com"))
+            .header(
+                http::header::HOST,
+                format!("data.tunneling.iot.{region}.amazonaws.com"),
+            )
             .header("Connection", "Upgrade")
             .header("Upgrade", "websocket")
             .header("Sec-WebSocket-Version", "13")
             .header("Sec-WebSocket-Key", generate_key())
-            .header("Sec-WebSocket-Protocol", "aws.iot.securetunneling-3.0")
-            .uri(format!("wss://data.tunneling.iot.{region}.amazonaws.com/tunnel?local-proxy-mode=destination"))
+            .header("Sec-WebSocket-Protocol", "aws.iot.securetunneling-1.0") // V1 protocol
+            .uri(format!(
+                "wss://data.tunneling.iot.{region}.amazonaws.com/tunnel?local-proxy-mode={}",
+                client_mode.as_str()
+            ))
             .body(())?;
 
-        let (web_socket, ..) =
+        let (web_socket, _) =
             tokio_tungstenite::connect_async_tls_with_config(req, None, true, None).await?;
 
-        Ok(Tunnel { web_socket })
+        Ok(Tunnel {
+            client_mode: *client_mode,
+            web_socket,
+        })
     }
 
     /// Starts the [`Tunnel`] service, handling incoming and outgoing
@@ -93,18 +98,43 @@ impl Tunnel {
     /// [`Service`] trait defines the interface for this processing, including
     /// methods for connecting to the service, handling incoming messages,
     /// and closing the connection.
-    pub async fn start<S>(self, mut service: S) -> Result<()>
+    pub async fn start<S>(self, service: S) -> Result<()>
     where
         S: Service,
     {
+        // XXX
+        let stream_id = 69;
+
         let (mut write, mut read) = self.web_socket.split();
         let (tx_out, websocket_out) = mpsc::channel::<bytes::Bytes>(10);
         let (websocket_in, mut rx_in) = mpsc::channel::<bytes::Bytes>(10);
         let (close_tx, mut close_rx) = mpsc::channel::<()>(1);
 
-        let mut websocket_in = Some(websocket_in);
-        let mut websocket_out = Some(websocket_out);
-        let mut stream_id = 0;
+        match self.client_mode {
+            ClientMode::Source => {
+                let msg = Msg {
+                    msg_type: Type::StreamStart.into(),
+                    ignorable: true,
+                    stream_id,
+                    ..Default::default()
+                };
+                let mut out_payload = bytes::BytesMut::new();
+                serialize_message(&mut out_payload, msg)?;
+                write
+                    .send(Message::Binary(Payload::Owned(out_payload)))
+                    .await?;
+                write.flush().await?;
+
+                service
+                    .bind(websocket_in, websocket_out, close_tx.clone())
+                    .await?
+            }
+            ClientMode::Destination => {
+                service
+                    .connect(websocket_in, websocket_out, close_tx.clone())
+                    .await?
+            }
+        }
 
         loop {
             tokio::select! {
@@ -124,14 +154,8 @@ impl Tunnel {
                                 tx_out.send(bytes::Bytes::copy_from_slice(&msg.payload)).await?;
                             }
                             Type::StreamStart => {
-                                let Some((websocket_in, websocket_out)) = websocket_in.take().zip(websocket_out.take())
-                                else {
-                                    return Err(Error::Service(std::io::Error::other(
-                                        "restart of the same tunnel isn't supported",
-                                    )));
-                                };
-                                stream_id = msg.stream_id;
-                                service.connect(websocket_in, websocket_out, close_tx.clone()).await?;
+                                // TODO : Connection should take place once a StreamStart message
+                                // is received as per the protocol
                             }
                             Type::StreamReset => {
                                 warn!("stream reset isn't supported for now");
@@ -139,16 +163,6 @@ impl Tunnel {
                             }
                             Type::SessionReset => {
                                 warn!("session reset isn't supported for now");
-                                return Ok(());
-                            }
-                            Type::ServiceIds => {
-                                // pass
-                            }
-                            Type::ConnectionStart => {
-                                // pass
-                            }
-                            Type::ConnectionReset => {
-                                warn!("connection reset don't supported for now");
                                 return Ok(());
                             }
                         }
@@ -161,7 +175,6 @@ impl Tunnel {
                         ignorable: false,
                         stream_id,
                         payload: bytes.to_vec(),
-                        ..Default::default()
                     };
 
                     let mut out_payload = bytes::BytesMut::new();
@@ -186,14 +199,50 @@ fn ws_payload_to_bytes(payload: Payload) -> Bytes {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientMode {
+    Destination,
+    Source,
+}
+
+impl ClientMode {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Destination => "destination",
+            Self::Source => "source",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
-struct Notify {
+pub struct Notify {
     #[serde(rename = "clientAccessToken")]
     client_access_token: String,
     #[serde(rename = "clientMode")]
-    client_mode: String,
+    client_mode: ClientMode,
     region: String,
     services: Vec<String>,
+}
+
+impl Notify {
+    pub fn new(
+        client_access_token: impl Into<String>,
+        client_mode: ClientMode,
+        region: impl Into<String>,
+        services: Vec<String>,
+    ) -> Self {
+        Self {
+            client_access_token: client_access_token.into(),
+            client_mode,
+            region: region.into(),
+            services,
+        }
+    }
+
+    pub fn client_mode(&self) -> &ClientMode {
+        &self.client_mode
+    }
 }
 
 fn process_received_data(mut data: bytes::Bytes) -> Result<Vec<Msg>> {
@@ -232,19 +281,16 @@ mod tests {
     fn serialize_deserialize_messages() {
         let mut data = bytes::BytesMut::new();
         let msg1 = Message {
-            msg_type: Type::ServiceIds.into(),
+            msg_type: Type::StreamStart.into(),
             stream_id: 23,
             ignorable: true,
-            service_id: "SSH".to_owned(),
             ..Default::default()
         };
         let msg2 = Message {
             msg_type: Type::Data.into(),
             stream_id: 25,
             ignorable: false,
-            service_id: "SSH".to_owned(),
             payload: vec![1, 2],
-            ..Default::default()
         };
 
         serialize_message(&mut data, msg1.clone()).unwrap();

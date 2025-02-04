@@ -20,17 +20,22 @@ beluga-ssh-service = { path = "beluga-ssh-service" }
 beluga-tunnel = { path = "beluga-tunnel" }
 
 anyhow = "1"
+aws-config = { version = "1.5.15", features = ["behavior-version-latest"] }
+aws-sdk-iotsecuretunneling = "1.57.0"
+aws-runtime = "1.5.4"
 bytes = "1"
 chrono = "0.4"
 ciborium = "0.2"
+dotenvy = "0.15"
 futures = "0.3"
 itertools = "0.14"
+openssh = "0.11"
 petname = "2"
 prost = "0.13"
 rand = "0.9"
 rcgen = "0.13"
 rumqttc = "0.24"
-rustls = "0.23"
+rustls = { version = "0.23", features = ["ring"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 strum = { version = "0.26", features = ["derive"] }

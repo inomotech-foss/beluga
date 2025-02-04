@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 beluga-tunnel.workspace = true
 bytes.workspace = true
+tracing.workspace = true
 
 [dependencies.tokio]
 workspace = true
