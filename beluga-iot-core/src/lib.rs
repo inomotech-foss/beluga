@@ -1,15 +1,16 @@
 use beluga_mqtt::{MqttClient, Publish, QoS};
 use beluga_tunnel::Tunnel;
-use error::Error;
+use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tokio_util::task::TaskTracker;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
+
+use self::error::Error;
+pub use self::jobs::{Job, JobStatus, JobsClient};
 
 mod error;
 mod jobs;
 pub mod provision;
-
-pub use jobs::{Job, JobStatus, JobsClient};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -67,9 +68,23 @@ impl TunnelManager {
                     _ = cancel_task.cancelled() => {
                         return Result::Ok(());
                     }
-                    packet = subscriber.recv() => {
+                    res = subscriber.recv() => {
+                        let packet = match res {
+                            Ok(packet) => packet,
+                            // This is (probably) the only case we can't recover from.
+                            // Ideally subscriptions should yield `Option<Publish>` instead of a `Result<_>`, but this is the API for now.
+                            Err(beluga_mqtt::Error::Receive(RecvError::Closed)) => {
+                                warn!("subscriber closed");
+                                return Result::Ok(());
+                            }
+                            // The error can be from a disconnect, so we ignore it.
+                            Err(err) => {
+                                error!(err = &err as &dyn std::error::Error, "failed to receive packet");
+                                continue;
+                            }
+                        };
                         debug!("spawn new service");
-                        tracker.spawn(service(packet?, cancel_task.clone()));
+                        tracker.spawn(service(packet, cancel_task.clone()));
                     }
                 }
             }
