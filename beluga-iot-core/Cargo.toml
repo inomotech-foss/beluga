@@ -31,9 +31,15 @@ features = ["rt", "net", "io-util", "sync"]
 
 [dev-dependencies]
 anyhow.workspace = true
+aws-config.workspace = true
+aws-runtime.workspace = true
+aws-sdk-iotsecuretunneling.workspace = true
+dotenvy.workspace = true
 itertools.workspace = true
+openssh.workspace = true
 petname.workspace = true
 rcgen.workspace = true
+rustls = { workspace = true, features = ["ring"] }
 time.workspace = true
 toml.workspace = true
 tracing-subscriber.workspace = true
