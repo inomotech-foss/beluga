@@ -5,8 +5,8 @@ use std::sync::Arc;
 use beluga_mqtt::{MqttClient, OwnedSubscriber, QoS, Subscriber};
 use bytes::Bytes;
 use chrono::prelude::Utc;
-use rand::distributions::Alphanumeric;
-use rand::prelude::*;
+use rand::distr::Alphanumeric;
+use rand::Rng;
 use tracing::warn;
 
 use self::data::{
@@ -600,7 +600,7 @@ fn start_next_rejected(thing_name: &str) -> String {
 #[must_use]
 #[inline(always)]
 fn token() -> String {
-    thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(15)
         .map(char::from)
