@@ -4,6 +4,7 @@ use beluga_mqtt::{Error, Publish, QoS};
 use common::{ca, client, mqtt_server, port, server_certs, signed_cert};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::oneshot;
+use tokio::time;
 
 mod common;
 
@@ -23,7 +24,7 @@ async fn single_subscribe_and_receive_immediately() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
 
@@ -39,7 +40,7 @@ async fn single_subscribe_and_receive_immediately() {
         data_tx.send(data).unwrap();
     });
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     client
         .publish("some", QoS::AtLeastOnce, false, "not he-he".into())
@@ -51,7 +52,7 @@ async fn single_subscribe_and_receive_immediately() {
             let packet = p.unwrap();
             assert_eq!(packet.payload, "not he-he");
         }
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+        _ = time::sleep(Duration::from_secs(1)) => {
             panic!("timeout");
         }
     }
@@ -73,7 +74,7 @@ async fn single_subscribe() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
     let mut subscriber = client
@@ -91,7 +92,7 @@ async fn single_subscribe() {
             let packet = p.unwrap();
             assert_eq!(packet.payload, "not he-he");
         }
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+        _ = time::sleep(Duration::from_secs(1)) => {
             panic!("timeout");
         }
     }
@@ -112,7 +113,7 @@ async fn multiple_subscribe() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
 
@@ -140,7 +141,7 @@ async fn multiple_subscribe() {
             let packet = p1.unwrap();
             assert_eq!(packet.payload, "message1");
         }
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+        _ = time::sleep(Duration::from_secs(1)) => {
             panic!("timeout on topic1");
         }
     }
@@ -150,7 +151,7 @@ async fn multiple_subscribe() {
             let packet = p2.unwrap();
             assert_eq!(packet.payload, "message2");
         }
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+        _ = time::sleep(Duration::from_secs(1)) => {
             panic!("timeout on topic2");
         }
     }
@@ -171,7 +172,7 @@ async fn qos_levels() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
 
@@ -193,7 +194,7 @@ async fn qos_levels() {
                 let packet = p.unwrap();
                 assert_eq!(packet.payload, format!("message with QoS {:?}", qos));
             }
-            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+            _ = time::sleep(Duration::from_secs(1)) => {
                 panic!("timeout for QoS {:?}", qos);
             }
         }
@@ -215,7 +216,7 @@ async fn subscribe_many() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
 
@@ -243,7 +244,7 @@ async fn subscribe_many() {
                     _ => panic!("unexpected topic"),
                 }
             }
-            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+            _ = time::sleep(Duration::from_secs(1)) => {
                 panic!("timeout");
             }
         }
@@ -265,7 +266,7 @@ async fn subscribe_many_empty() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
 
@@ -292,7 +293,7 @@ async fn subscribe_many_qos_levels() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
 
@@ -331,7 +332,7 @@ async fn subscribe_many_qos_levels() {
                         _ => panic!("unexpected topic"),
                     }
                 }
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                _ = time::sleep(Duration::from_secs(1)) => {
                     panic!("timeout");
                 }
             }
@@ -359,7 +360,7 @@ async fn subscribe_owned() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
 
@@ -380,7 +381,7 @@ async fn subscribe_owned() {
     // Allow time for the MQTT client task to complete the unsubscribe operation
     // This ensures that when we subscribe again, we won't receive the previous
     // message ("message") but instead receive the new message ("next-message")
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     assert!(matches!(
         s1.recv().await,
@@ -398,7 +399,7 @@ async fn subscribe_owned() {
             let packet = p.unwrap();
             assert_eq!(packet.payload, "next-message");
         }
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+        _ = time::sleep(Duration::from_secs(1)) => {
             panic!("timeout");
         }
     }
@@ -419,7 +420,7 @@ async fn subscribe_many_owned() {
         port,
     )
     .drop_guard();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
 
@@ -438,7 +439,7 @@ async fn subscribe_many_owned() {
     // Allow time for the MQTT client task to complete the unsubscribe operation
     // This ensures that when we subscribe again, we won't receive the previous
     // message ("message") but instead receive the new message ("next-message")
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    time::sleep(Duration::from_millis(100)).await;
 
     let mut s3 = client
         .subscribe_many_owned(vec!["topic_a", "topic_b", "topic_c"], QoS::AtLeastOnce)
@@ -455,8 +456,73 @@ async fn subscribe_many_owned() {
             let packet = p.unwrap();
             assert_eq!(packet.payload, "next-message");
         }
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+        _ = time::sleep(Duration::from_secs(1)) => {
             panic!("timeout");
         }
     }
+}
+
+#[tokio::test]
+async fn subscribe_reconnect() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let (ca, ca_key) = ca().unwrap();
+    let (client_cert, client_key) = signed_cert(&ca, &ca_key).unwrap();
+    let (ca_path, cert_path, key_path) = server_certs(temp_dir.path(), &ca, &ca_key).await.unwrap();
+    let port = port();
+
+    let broker_handler = mqtt_server(
+        ca_path.to_str().unwrap().to_owned(),
+        cert_path.to_str().unwrap().to_owned(),
+        key_path.to_str().unwrap().to_owned(),
+        port,
+    );
+    time::sleep(Duration::from_millis(100)).await;
+
+    let client = client(&ca, &client_cert, &client_key, port, "ThingName").unwrap();
+
+    // first, check that subscriptions work at all
+
+    let mut s1 = client
+        .subscribe_owned("topic_a", QoS::AtLeastOnce)
+        .await
+        .unwrap();
+    client
+        .publish("topic_a", QoS::AtLeastOnce, false, "1".into())
+        .await
+        .unwrap();
+
+    let packet = time::timeout(Duration::from_secs(1), s1.recv())
+        .await
+        .unwrap();
+    assert_eq!(packet.unwrap().payload, "1");
+
+    // now restart the broker to force a reconnect
+
+    broker_handler.shutdown();
+    let _guard = mqtt_server(
+        ca_path.to_str().unwrap().to_owned(),
+        cert_path.to_str().unwrap().to_owned(),
+        key_path.to_str().unwrap().to_owned(),
+        port,
+    )
+    .drop_guard();
+    time::sleep(Duration::from_millis(100)).await;
+
+    // we expect a disconnect notification
+    let packet = time::timeout(Duration::from_secs(1), s1.recv())
+        .await
+        .unwrap();
+    packet.unwrap_err();
+
+    // and try the same thing again
+
+    client
+        .publish("topic_a", QoS::AtLeastOnce, false, "2".into())
+        .await
+        .unwrap();
+
+    let packet = time::timeout(Duration::from_secs(1), s1.recv())
+        .await
+        .unwrap();
+    assert_eq!(packet.unwrap().payload, "2");
 }

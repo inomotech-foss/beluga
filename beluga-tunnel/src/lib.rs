@@ -1,4 +1,4 @@
-use bytes::{Buf, BufMut};
+use bytes::{Buf, BufMut, Bytes};
 use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
 use prost::Message as _;
@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::handshake::client::{generate_key, Request};
+use tokio_tungstenite::tungstenite::protocol::frame::Payload;
 use tokio_tungstenite::tungstenite::{http, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
@@ -110,7 +111,7 @@ impl Tunnel {
                 msg = read.next() => {
                     let bytes = msg
                         .ok_or(Error::WebSocketClosed)?
-                        .map(|msg| bytes::Bytes::from_iter(msg.into_data()))?;
+                        .map(|msg| ws_payload_to_bytes(msg.into_data()))?;
 
                     let messages = process_received_data(bytes)?;
 
@@ -165,7 +166,7 @@ impl Tunnel {
 
                     let mut out_payload = bytes::BytesMut::new();
                     serialize_message(&mut out_payload, msg)?;
-                    write.send(Message::Binary(out_payload.to_vec())).await?;
+                    write.send(Message::Binary(Payload::Owned(out_payload))).await?;
                 }
                 _ = close_rx.recv() => {
                     return Err(Error::Service(std::io::Error::other(
@@ -174,6 +175,14 @@ impl Tunnel {
                 }
             }
         }
+    }
+}
+
+fn ws_payload_to_bytes(payload: Payload) -> Bytes {
+    match payload {
+        Payload::Owned(buf) => buf.freeze(),
+        Payload::Shared(buf) => buf,
+        Payload::Vec(v) => Bytes::from(v),
     }
 }
 
