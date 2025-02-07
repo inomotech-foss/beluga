@@ -1,5 +1,6 @@
 use beluga_mqtt::{MqttClient, Publish, QoS};
-use beluga_tunnel::Tunnel;
+use beluga_ssh_service::SshService;
+use beluga_tunnel::{ClientMode, Notify, Tunnel};
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tokio_util::task::TaskTracker;
@@ -126,8 +127,13 @@ impl TunnelManager {
 ///
 /// A [`Result`] indicating whether the service ran successfully.
 async fn service(packet: Publish, cancel: CancellationToken) -> Result<()> {
-    let service = beluga_ssh_service::SshService;
-    let tunnel = Tunnel::new(packet.payload).await?;
+    let notify = serde_json::from_slice::<Notify>(&packet.payload)?;
+    let tunnel = Tunnel::new(&notify).await?;
+    let service = match notify.client_mode() {
+        ClientMode::Destination => SshService::destination(),
+        ClientMode::Source => SshService::source(),
+    };
+
     tokio::select! {
         _ = cancel.cancelled() => {
             warn!("ssh service cancelled");

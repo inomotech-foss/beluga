@@ -1,24 +1,25 @@
-use tokio::sync::mpsc::{Receiver, Sender};
+use bytes::Bytes;
+use tokio::sync;
 
 use crate::Result;
 
+/// A trait for giving a service both source and destination implementations for
+/// communicating over the AWS localproxy protocol.
 #[allow(async_fn_in_trait)]
 pub trait Service {
-    /// Connects the service to a WebSocket and handles the incoming and
-    /// outgoing data.
-    ///
-    /// # Arguments
-    /// * `websocket_in` - A [`Sender`] for sending bytes to the WebSocket.
-    /// * `websocket_out` - A [`Receiver`] for receiving bytes from the
-    ///   WebSocket.
-    /// * `close_service` - A [`Sender`] for signaling the service to close.
-    ///
-    /// # Returns
-    /// A [`Result`] indicating whether the connection was successful.
+    /// Manages the destination communication through a WebSocket.
     async fn connect(
-        &mut self,
-        websocket_in: Sender<bytes::Bytes>,
-        websocket_out: Receiver<bytes::Bytes>,
-        close_service: Sender<()>,
+        &self,
+        websocket_in: sync::mpsc::Sender<Bytes>,
+        websocket_out: sync::mpsc::Receiver<Bytes>,
+        close_in: sync::mpsc::Sender<()>,
+    ) -> Result<()>;
+
+    /// Initiates and manages the source communication through a WebSocket.
+    async fn bind(
+        &self,
+        websocket_in: sync::mpsc::Sender<Bytes>,
+        websocket_out: sync::mpsc::Receiver<Bytes>,
+        close_in: sync::mpsc::Sender<()>,
     ) -> Result<()>;
 }
