@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use beluga_aws_sdk::provision::{
+use beluga_iot_core::provision::{
     create_keys_and_certificate, register_thing, RegisterThingResponse,
 };
 use beluga_mqtt::{MqttClientBuilder, QoS};

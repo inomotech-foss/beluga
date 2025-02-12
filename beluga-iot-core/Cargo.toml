@@ -1,5 +1,5 @@
 [package]
-name = "beluga-aws-sdk"
+name = "beluga-iot-core"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -41,6 +41,7 @@ petname.workspace = true
 rcgen.workspace = true
 rustls = { workspace = true, features = ["ring"] }
 time.workspace = true
+tokio = { workspace = true, features = ["full"] }
 toml.workspace = true
 tracing-subscriber.workspace = true
 uuid = { workspace = true, features = ["v4"] }
