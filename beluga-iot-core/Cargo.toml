@@ -1,5 +1,5 @@
 [package]
-name = "beluga-aws-sdk"
+name = "beluga-iot-core"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
