@@ -35,14 +35,13 @@ prost = "0.13"
 rand = "0.9"
 rcgen = "0.13"
 rumqttc = "0.24"
-rustls = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 strum = { version = "0.27", features = ["derive"] }
 tempfile = "3"
 thiserror = "2"
 time = "0.3"
-tokio = { version = "1", default-features = false, features = ["full"] }
+tokio = { version = "1", default-features = false }
 tokio-tungstenite = { version = "0.26", default-features = false }
 tokio-util = "0.7"
 toml = "0.8"
@@ -51,6 +50,11 @@ tracing-subscriber = "0.3"
 uuid = "1"
 
 [workspace.dependencies.rumqttd]
-git = "https://github.com/inomotech-foss/rumqtt.git"
+git = "https://github.com/inomotech-foss/rumqtt"
 rev = "d39e1490831c41c90a12705b2a84df9b1a327ff6"
 features = ["verify-client-cert"]
+
+[workspace.dependencies.rustls]
+version = "0.23"
+# we don't want to force-enable aws-lc
+default-features = false
